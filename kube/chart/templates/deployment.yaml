@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+    name: {{.Values.serviceName}}
+spec:
+    replicas: 1
+    selector:
+        matchLabels:
+            app: {{.Values.serviceName}}
+    template:
+        metadata:
+            labels:
+                app: {{.Values.serviceName}}
+        spec:
+            containers:
+                - name: php
+                  image: localhost:32000/{{.Values.serviceName}}:latest
+                  env:
+                      {{- include "electrical-api.env" . | nindent 22 }}
+                  volumeMounts:
+                      - name: code
+                        mountPath: /var/www/app
+                      {{- if .Values.jwtSecretName }}
+                      - name: jwt-keys
+                        mountPath: /var/www/app/config/jwt
+                        readOnly: true
+                      {{- end }}
+                      - name: shared
+                        mountPath: /var/www/shared
+                        readOnly: true
+                      {{- if .Values.xdebug }}
+                      - name: xdebug-config
+                        mountPath: /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+                        subPath: xdebug.ini
+                      {{- end }}
+
+                - name: nginx
+                  image: nginx:1.27-alpine
+                  ports:
+                      - containerPort: 80
+                  volumeMounts:
+                      - name: code
+                        mountPath: /var/www/app
+                      - name: nginx-conf
+                        mountPath: /etc/nginx/conf.d/default.conf
+                        subPath: default.conf
+
+            volumes:
+                - name: code
+                  hostPath:
+                      path: {{.Values.hostPath}}
+                - name: shared
+                  hostPath:
+                      path: {{.Values.sharedHostPath}}
+                {{- if .Values.jwtSecretName }}
+                - name: jwt-keys
+                  secret:
+                      secretName: {{.Values.jwtSecretName}}
+                      items:
+                          - key: private.pem
+                            path: private.pem
+                          - key: public.pem
+                            path: public.pem
+                {{- end }}
+                {{- if .Values.xdebug }}
+                - name: xdebug-config
+                  configMap:
+                      name: {{.Values.serviceName}}-php-config
+                {{- end }}
+                - name: nginx-conf
+                  configMap:
+                      name: {{.Values.serviceName}}-nginx-config

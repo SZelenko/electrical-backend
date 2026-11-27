@@ -1,0 +1,3 @@
+auth_refresh:
+    path: /api/v1/auth/refresh
+    methods: [POST]

@@ -1,0 +1,28 @@
+server {
+    listen 80;
+    root /var/www/app/public;
+    charset utf-8;
+
+    location ~* ^/(bundles|media|styles|css|js|img|images) {
+        sendfile   on;
+        tcp_nopush on;
+        aio        on;
+
+        expires 15s;
+        add_header Cache-Control "public, no-transform";
+
+        try_files $uri =404;
+    }
+
+    location / {
+        include fastcgi_params;
+        fastcgi_pass  ${PHP_FPM_HOST}:9000;
+        fastcgi_param SCRIPT_FILENAME $document_root/index.php;
+        fastcgi_param DOCUMENT_ROOT $document_root;
+        fastcgi_param REQUEST_URI $request_uri;
+    }
+
+    location ~ /\. {
+        deny all;
+    }
+}

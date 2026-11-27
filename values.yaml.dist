@@ -1,0 +1,25 @@
+serviceName: electrical-api
+host: api.electrical.local
+tlsSecretName: electrical-local-tls
+xdebug: true # image must be built with --build-arg INSTALL_XDEBUG=1
+xdebugClientHost: 172.17.0.1
+xdebugPort: 9013
+xdebugIdeKey: PHPSTORM
+hostPath: /media/Data/own/electrical/backend # Codebase location
+corsAllowOrigin: '^https://app\.electrical\.local$'
+trustedProxies: '10.100.0.0/16'
+
+postgres:
+    enabled: true
+    dbName: electrical_db
+    user: electrical_user
+    password: electrical_password
+    nodePort: 32004
+    hostPath: /media/Data/own/electrical/backend/data/postgres # DB data files location
+
+# Secret with the JWT key pair and passphrase (created manually, never committed)
+jwtSecretName: electrical-api-jwt
+otpSecretName: electrical-api-secrets
+
+# Repo shared/ directory (fixtures), mounted read-only at /var/www/shared
+sharedHostPath: /media/Data/own/electrical/shared

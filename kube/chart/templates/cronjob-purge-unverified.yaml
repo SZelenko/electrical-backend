@@ -1,0 +1,37 @@
+{{- if .Values.purgeUnverified.enabled }}
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+    name: {{.Values.serviceName}}-purge-unverified
+spec:
+    schedule: {{.Values.purgeUnverified.schedule | quote}}
+    concurrencyPolicy: Forbid
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 3
+    jobTemplate:
+        spec:
+            backoffLimit: 1
+            template:
+                spec:
+                    restartPolicy: Never
+                    securityContext:
+                        runAsNonRoot: true
+                        runAsUser: 1000
+                        runAsGroup: 1000
+                    containers:
+                        - name: purge-unverified
+                          image: localhost:32000/{{.Values.serviceName}}:latest
+                          workingDir: /var/www/app
+                          command: ["php", "-d", "xdebug.mode=off", "bin/console", "app:auth:purge-unverified", "--no-interaction"]
+                          env:
+                              {{- include "electrical-api.env" . | nindent 30 }}
+                          securityContext:
+                              allowPrivilegeEscalation: false
+                          volumeMounts:
+                              - name: code
+                                mountPath: /var/www/app
+                    volumes:
+                        - name: code
+                          hostPath:
+                              path: {{.Values.hostPath}}
+{{- end }}
