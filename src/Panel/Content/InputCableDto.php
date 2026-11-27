@@ -9,6 +9,7 @@ use ApiPlatform\Metadata\ApiProperty;
 final readonly class InputCableDto
 {
     /**
+     * @param string             $label        free mark, at most 16 characters, may be empty
      * @param float              $voltage      V, 0 < v <= 99999.9, one decimal
      * @param float              $frequency    Hz, 0 <= f <= 999.99, two decimals
      * @param float              $crossSection mm², 0 < x <= 999.99, two decimals
@@ -17,6 +18,8 @@ final readonly class InputCableDto
     public function __construct(
         #[ApiProperty(required: true)]
         public string $id,
+        #[ApiProperty(required: true)]
+        public string $label,
         #[ApiProperty(required: true)]
         public float $voltage,
         #[ApiProperty(required: true)]

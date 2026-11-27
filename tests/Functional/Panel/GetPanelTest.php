@@ -88,8 +88,9 @@ final class GetPanelTest extends PanelApiTestCase
         $panel = $this->createPanel($user);
         $sample = B::sample();
         $payload = B::with($sample, [
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(70), B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13)]), B::inputCable(50)],
-            'rails' => [B::rail(90, 10), B::rail(30, 24, [B::element(31, 0, 2, 2)], [B::block(32, 4, 1, 4)]), B::rail(60, 5)],
+            'rails' => [B::rail(90), B::rail(30, [B::element(31, 0, 2, 2)], [B::block(32, 4, 1, 4)]), B::rail(60)],
             'wires' => array_reverse($sample['wires']),
             'wires.0.bends' => [['x' => 3, 'y' => 1], ['x' => 1, 'y' => 3], ['x' => 2, 'y' => 2]],
         ]);
@@ -159,6 +160,7 @@ final class GetPanelTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $content = [
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],

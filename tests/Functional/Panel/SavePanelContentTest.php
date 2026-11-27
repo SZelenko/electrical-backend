@@ -70,6 +70,7 @@ final class SavePanelContentTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $content = [
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],

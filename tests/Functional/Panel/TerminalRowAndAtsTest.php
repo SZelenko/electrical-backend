@@ -191,10 +191,11 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $content = [
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [B::rowBlock(50, 0, 2)],
-            'rails' => [B::rail(30, 24, [B::ats(31, 0, 2, 'A')])],
+            'rails' => [B::rail(30, [B::ats(31, 0, 2, 'A')])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
                 B::wire(41, B::cableWireEnd(12), B::terminalEnd(50, 0, 'top')),
@@ -224,10 +225,11 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $content = [
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [B::outputCable(20, [B::uuid(21)])],
             'terminalRow' => [],
-            'rails' => [B::rail(30, 24, [B::ats(31, 0, 2, 'off')])],
+            'rails' => [B::rail(30, [B::ats(31, 0, 2, 'off')])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
                 B::wire(41, B::cableWireEnd(12), B::poleEnd(31, 2, 'input')),
@@ -265,7 +267,7 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
             $c->set('terminalRow.1.offsetModules', 59);
             $c->set('terminalRow.1.terminalCount', 4);
             $c->set('terminalRow.1.widthModules', 2);
-        }, 'content.terminalRow[1].offsetModules', 'Does not fit within the terminal row.', B::uuid(51)];
+        }, 'content.terminalRow[1].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(51)];
         yield 'row blocks overlap' => [static function (Doc $c): void {
             $c->set('terminalRow.1.offsetModules', 1);
         }, 'content.terminalRow[1].offsetModules', 'Overlaps another block in the terminal row.', B::uuid(51)];
@@ -394,6 +396,27 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         yield 'device style key is missing' => [static function (Doc $c): void {
             $c->unset('rails.0.elements.0.style');
         }, 'content.rails[0].elements[0].style'];
+        yield 'ATS style key is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.elements.1.style');
+        }, 'content.rails[0].elements[1].style'];
+        yield 'device on key is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.elements.0.on');
+        }, 'content.rails[0].elements[0].on'];
+        yield 'device poles key is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.elements.0.poles');
+        }, 'content.rails[0].elements[0].poles'];
+        yield 'device state key is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.elements.0.state');
+        }, 'content.rails[0].elements[0].state'];
+        yield 'ATS state key is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.elements.1.state');
+        }, 'content.rails[0].elements[1].state'];
+        yield 'row block colour key is missing' => [static function (Doc $c): void {
+            $c->unset('terminalRow.0.colour');
+        }, 'content.terminalRow[0].colour'];
+        yield 'rail block colour key is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.terminalBlocks.0.colour');
+        }, 'content.rails[0].terminalBlocks[0].colour'];
         yield 'ATS state is unknown' => [static function (Doc $c): void {
             $c->set('rails.0.elements.1.state', 'C');
         }, 'content.rails[0].elements[1].state'];
@@ -451,7 +474,7 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $content = B::with(B::minimal(), [
-            'rails' => [B::rail(30, 24, [
+            'rails' => [B::rail(30, [
                 B::element(31, 0, 1, 1, true, 'Q1', 'A', 'breaker'),
                 B::element(32, 1, 1, 1, true, 'Q2', 'B', 'rcd'),
                 B::element(33, 2, 1, 1, false, 'Q3', 'C', 'voltageRelay'),
@@ -480,12 +503,30 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
     {
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
-        $this->saveContent($user, $panel['id'], B::with(B::minimal(), ['rails' => [B::rail(30, 24, [B::element(31, 0, 1, 1, true, 'Q1', 'A', 'rcd')])]]));
+        $this->saveContent($user, $panel['id'], B::with(B::minimal(), ['rails' => [B::rail(30, [B::element(31, 0, 1, 1, true, 'Q1', 'A', 'rcd')])]]));
 
-        $body = $this->saveContent($user, $panel['id'], B::with(B::minimal(), ['rails' => [B::rail(30, 24, [B::element(31, 0, 1, 1, true, 'Q1', 'A', 'voltageRelay')])]]));
+        $body = $this->saveContent($user, $panel['id'], B::with(B::minimal(), ['rails' => [B::rail(30, [B::element(31, 0, 1, 1, true, 'Q1', 'A', 'voltageRelay')])]]));
 
         self::assertSame('voltageRelay', $body['content']['rails'][0]['elements'][0]['style']);
         self::assertSame('voltageRelay', $this->connection()->fetchOne('SELECT style FROM element WHERE id = ?', [B::uuid(31)]));
+    }
+
+    public function testOptionalKeysMayBeOmittedSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $doc = new Doc(self::rich());
+        $doc->unset('wires.1.end.contactSide'); // pole end
+        $doc->unset('wires.0.start.contactSide'); // cable wire end
+        $doc->unset('wires.0.bends');
+        $doc->unset('wires.1.bends');
+
+        $body = $this->saveContent($user, $panel['id'], $doc->content());
+
+        $wires = array_column($body['content']['wires'], null, 'id');
+        self::assertSame([], $wires[B::uuid(40)]['bends']);
+        self::assertSame([], $wires[B::uuid(41)]['bends']);
+        self::assertNull($wires[B::uuid(41)]['end']['contactSide'] ?? null);
     }
 
     public function testTerminalRowAsJsonObjectError(): void

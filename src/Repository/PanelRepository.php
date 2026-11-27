@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repository;
 
+use App\Entity\Panel\Busbar;
 use App\Entity\Panel\Cable;
 use App\Entity\Panel\CableWire;
 use App\Entity\Panel\DinRail;
@@ -130,12 +131,14 @@ class PanelRepository extends ServiceEntityRepository
         $poles = $select(\sprintf('SELECT p FROM %s p JOIN p.element e JOIN e.rail r WHERE r.panel = :panel', ElementPole::class));
         /** @var list<TerminalBlock> $blocks */
         $blocks = $select(\sprintf('SELECT b FROM %s b WHERE b.panel = :panel', TerminalBlock::class));
+        /** @var list<Busbar> $busbars */
+        $busbars = $select(\sprintf('SELECT b FROM %s b JOIN b.firstElement e JOIN e.rail r WHERE r.panel = :panel', Busbar::class));
         /** @var list<PanelWire> $wires */
         $wires = $select(\sprintf('SELECT w FROM %s w WHERE w.panel = :panel', PanelWire::class));
         /** @var list<PanelWireBend> $bends */
         $bends = $select(\sprintf('SELECT b FROM %s b JOIN b.wire w WHERE w.panel = :panel', PanelWireBend::class));
 
-        return new PanelTree($cables, $cableWires, $rails, $elements, $poles, $blocks, $wires, $bends);
+        return new PanelTree($cables, $cableWires, $rails, $elements, $poles, $blocks, $busbars, $wires, $bends);
     }
 
     /**
@@ -160,6 +163,7 @@ class PanelRepository extends ServiceEntityRepository
                 PanelWireBend::class,
                 PanelWire::class,
                 ElementPole::class,
+                Busbar::class,
                 Element::class,
                 TerminalBlock::class,
                 DinRail::class,

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Support;
 
 use App\Entity\Panel\AtsState;
+use App\Entity\Panel\BusbarType;
 use App\Entity\Panel\ContactSide;
 use App\Entity\Panel\DeviceStyle;
 use App\Entity\Panel\ElementKind;
@@ -13,6 +14,7 @@ use App\Entity\Panel\TerminalSide;
 use App\Entity\Panel\WireColour;
 use App\Entity\Panel\WireCrossSection;
 use App\Panel\Content\BendDto;
+use App\Panel\Content\BusbarDto;
 use App\Panel\Content\CableWireDto;
 use App\Panel\Content\ElementDto;
 use App\Panel\Content\EndpointDto;
@@ -36,6 +38,7 @@ use App\Panel\Content\WireDto;
  * @phpstan-import-type Rail from PanelShapes
  * @phpstan-import-type Element from PanelShapes
  * @phpstan-import-type Block from PanelShapes
+ * @phpstan-import-type Busbar from PanelShapes
  * @phpstan-import-type Wire from PanelShapes
  * @phpstan-import-type Endpoint from PanelShapes
  * @phpstan-import-type Bend from PanelShapes
@@ -53,12 +56,13 @@ final class PanelContentBuilder
      *
      * @return InputCable
      */
-    public static function inputCable(int $id, array $wireIds = [], float $voltage = 230, float $frequency = 50, float $crossSection = 4): array
+    public static function inputCable(int $id, array $wireIds = [], float $voltage = 230, float $frequency = 50, float $crossSection = 4, string $label = ''): array
     {
         $wireIds = [] === $wireIds ? [self::uuid($id + 1)] : $wireIds;
 
         return [
             'id' => self::uuid($id),
+            'label' => $label,
             'voltage' => $voltage,
             'frequency' => $frequency,
             'crossSection' => $crossSection,
@@ -71,12 +75,13 @@ final class PanelContentBuilder
      *
      * @return OutputCable
      */
-    public static function outputCable(int $id, array $wireIds = [], string $description = 'Lights'): array
+    public static function outputCable(int $id, array $wireIds = [], string $description = 'Lights', string $label = ''): array
     {
         $wireIds = [] === $wireIds ? [self::uuid($id + 1)] : $wireIds;
 
         return [
             'id' => self::uuid($id),
+            'label' => $label,
             'description' => $description,
             'wires' => array_map(static fn(string $w): array => ['id' => $w, 'colour' => 'blue'], $wireIds),
         ];
@@ -85,12 +90,29 @@ final class PanelContentBuilder
     /**
      * @param list<Element> $elements
      * @param list<Block>   $blocks
+     * @param list<Busbar>  $busbars
      *
      * @return Rail
      */
-    public static function rail(int $id, int $width = 24, array $elements = [], array $blocks = [], float $spacing = 0): array
+    public static function rail(int $id, array $elements = [], array $blocks = [], float $spacing = 0, array $busbars = []): array
     {
-        return ['id' => self::uuid($id), 'widthModules' => $width, 'spacingMm' => $spacing, 'elements' => $elements, 'terminalBlocks' => $blocks];
+        return ['id' => self::uuid($id), 'spacingMm' => $spacing, 'elements' => $elements, 'terminalBlocks' => $blocks, 'busbars' => $busbars];
+    }
+
+    /**
+     * A busbar anchored at the device `$firstElementId`, covering `$count` devices.
+     *
+     * @return Busbar
+     */
+    public static function busbar(int $id, int $firstElementId, int $count = 2, string $type = 'L', ?string $colour = null): array
+    {
+        return ['id' => self::uuid($id), 'type' => $type, 'colour' => $colour, 'firstElementId' => self::uuid($firstElementId), 'count' => $count];
+    }
+
+    /** @return Endpoint */
+    public static function busbarEnd(int $busbarId, int $feedIndex = 0): array
+    {
+        return ['kind' => 'busbar', 'busbarId' => self::uuid($busbarId), 'feedIndex' => $feedIndex];
     }
 
     /**
@@ -196,11 +218,12 @@ final class PanelContentBuilder
     public static function sample(): array
     {
         return [
+            'railWidthModules' => 24,
             'inputCables' => [self::inputCable(10, [self::uuid(11), self::uuid(12), self::uuid(13)])],
             'outputCables' => [self::outputCable(20)],
             'terminalRow' => [],
             'rails' => [
-                self::rail(30, 24, [self::element(31, 0, 2, 2)], [self::block(32, 4, 1, 4)], 12.5),
+                self::rail(30, [self::element(31, 0, 2, 2)], [self::block(32, 4, 1, 4)], 12.5),
             ],
             'wires' => [
                 self::wire(40, self::cableWireEnd(11), self::poleEnd(31, 0, 'input')),
@@ -239,7 +262,7 @@ final class PanelContentBuilder
      */
     public static function minimal(): array
     {
-        return ['inputCables' => [self::inputCable(10)], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []];
+        return ['railWidthModules' => 24, 'inputCables' => [self::inputCable(10)], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []];
     }
 
     /** @param Content $data */
@@ -247,11 +270,11 @@ final class PanelContentBuilder
     {
         $inputs = [];
         foreach ($data['inputCables'] as $c) {
-            $inputs[] = new InputCableDto($c['id'], (float) $c['voltage'], (float) $c['frequency'], (float) $c['crossSection'], self::cableWires($c['wires']));
+            $inputs[] = new InputCableDto($c['id'], $c['label'], (float) $c['voltage'], (float) $c['frequency'], (float) $c['crossSection'], self::cableWires($c['wires']));
         }
         $outputs = [];
         foreach ($data['outputCables'] as $c) {
-            $outputs[] = new OutputCableDto($c['id'], $c['description'], self::cableWires($c['wires']));
+            $outputs[] = new OutputCableDto($c['id'], $c['label'], $c['description'], self::cableWires($c['wires']));
         }
         $rails = [];
         foreach ($data['rails'] as $r) {
@@ -282,7 +305,11 @@ final class PanelContentBuilder
             foreach ($r['terminalBlocks'] as $b) {
                 $blocks[] = self::blockDto($b);
             }
-            $rails[] = new RailDto($r['id'], $r['widthModules'], (float) $r['spacingMm'], $elements, $blocks);
+            $busbars = [];
+            foreach ($r['busbars'] as $bb) {
+                $busbars[] = new BusbarDto($bb['id'], BusbarType::from($bb['type']), null === $bb['colour'] ? null : WireColour::from($bb['colour']), $bb['firstElementId'], $bb['count']);
+            }
+            $rails[] = new RailDto($r['id'], (float) $r['spacingMm'], $elements, $blocks, $busbars);
         }
         $row = [];
         foreach ($data['terminalRow'] as $b) {
@@ -304,7 +331,7 @@ final class PanelContentBuilder
             );
         }
 
-        return new PanelContent($inputs, $outputs, $row, $rails, $wires);
+        return new PanelContent($data['railWidthModules'], $inputs, $outputs, $row, $rails, $wires);
     }
 
     /**
@@ -347,6 +374,8 @@ final class PanelContentBuilder
             $e['terminalIndex'] ?? null,
             $e['cableWireId'] ?? null,
             isset($e['contactSide']) ? ContactSide::from($e['contactSide']) : null,
+            $e['busbarId'] ?? null,
+            $e['feedIndex'] ?? null,
         );
     }
 }

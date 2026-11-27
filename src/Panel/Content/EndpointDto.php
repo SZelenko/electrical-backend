@@ -13,7 +13,7 @@ use App\Entity\Panel\TerminalSide;
  * One end of a panel wire, a union discriminated by `kind`:
  * `pole` = elementId + poleIndex + side (devices and ATS; ATS inputs 0..3, outputs 0..1);
  * `terminal` = terminalBlockId + terminalIndex + contactSide (top/bottom on a terminal-row block,
- * left/right on a rail block); `cableWire` = cableWireId. Fields of the other kinds must be absent or null.
+ * left/right on a rail block); `cableWire` = cableWireId; `busbar` = busbarId + feedIndex (0 = L, 1 = N of an LN busbar). Fields of the other kinds must be absent or null.
  */
 final readonly class EndpointDto
 {
@@ -27,6 +27,8 @@ final readonly class EndpointDto
         public ?int $terminalIndex = null,
         public ?string $cableWireId = null,
         public ?ContactSide $contactSide = null,
+        public ?string $busbarId = null,
+        public ?int $feedIndex = null,
     ) {}
 
     /** The same endpoint without the drawing-only contact side. */
@@ -40,6 +42,9 @@ final readonly class EndpointDto
             $this->terminalBlockId,
             $this->terminalIndex,
             $this->cableWireId,
+            null,
+            $this->busbarId,
+            $this->feedIndex,
         );
     }
 
@@ -50,6 +55,7 @@ final readonly class EndpointDto
             EndpointKind::Pole => 'p:' . $this->elementId . ':' . $this->poleIndex . ':' . $this->side?->value,
             EndpointKind::Terminal => 't:' . $this->terminalBlockId . ':' . $this->terminalIndex,
             EndpointKind::CableWire => 'w:' . $this->cableWireId,
+            EndpointKind::Busbar => 'b:' . $this->busbarId . ':' . $this->feedIndex,
         };
     }
 }

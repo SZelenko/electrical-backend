@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Panel;
 
+use App\Entity\Panel\Busbar;
 use App\Entity\Panel\Cable;
 use App\Entity\Panel\CableWire;
 use App\Entity\Panel\DinRail;
@@ -23,6 +24,7 @@ final readonly class PanelTree
      * @param list<Element>        $elements
      * @param list<ElementPole>    $poles
      * @param list<TerminalBlock>  $terminalBlocks
+     * @param list<Busbar>         $busbars
      * @param list<PanelWire>      $wires
      * @param list<PanelWireBend>  $bends
      */
@@ -33,6 +35,7 @@ final readonly class PanelTree
         public array $elements,
         public array $poles,
         public array $terminalBlocks,
+        public array $busbars,
         public array $wires,
         public array $bends,
     ) {}
@@ -47,6 +50,7 @@ final readonly class PanelTree
             ...$this->elements,
             ...$this->poles,
             ...$this->terminalBlocks,
+            ...$this->busbars,
             ...$this->wires,
             ...$this->bends,
         ];

@@ -10,7 +10,7 @@ use Doctrine\ORM\Mapping as ORM;
 use Symfony\Bridge\Doctrine\Types\UuidType;
 use Symfony\Component\Uid\Uuid;
 
-/** Input cable (label voltage / frequency / cross-section) or output cable (description). */
+/** Input cable (rating: voltage / frequency / cross-section) or output cable (description); both carry a free label. */
 #[ORM\Entity]
 #[ORM\Table(name: 'cable')]
 #[ORM\UniqueConstraint(name: 'uniq_cable__panel_kind_position', fields: ['panel', 'kind', 'position'])]
@@ -49,9 +49,14 @@ class Cable
     #[ORM\Column(length: 255, nullable: true)]
     public private(set) ?string $description = null;
 
-    private function __construct(Uuid $id, Panel $panel, CableKind $kind, int $position)
+    /** The user's free mark shown on the cable box (at most 16 characters, may be empty); not the input-cable rating. */
+    #[ORM\Column(length: 16)]
+    public private(set) string $label;
+
+    private function __construct(Uuid $id, Panel $panel, CableKind $kind, int $position, string $label)
     {
         $this->id = $id;
+        $this->label = $label;
         $this->panel = $panel;
         $this->kind = $kind;
         $this->position = $position;
@@ -61,11 +66,12 @@ class Cable
         Uuid $id,
         Panel $panel,
         int $position,
+        string $label,
         float $voltageV,
         float $frequencyHz,
         float $crossSectionMm2,
     ): self {
-        $cable = new self($id, $panel, CableKind::Input, $position);
+        $cable = new self($id, $panel, CableKind::Input, $position, $label);
         $cable->voltageV = Decimal::format($voltageV, self::INPUT_LABEL_SCALE_VOLTAGE);
         $cable->frequencyHz = Decimal::format($frequencyHz, self::INPUT_LABEL_SCALE_FREQUENCY);
         $cable->crossSectionMm2 = Decimal::format($crossSectionMm2, self::INPUT_LABEL_SCALE_CROSS_SECTION);
@@ -73,9 +79,9 @@ class Cable
         return $cable;
     }
 
-    public static function output(Uuid $id, Panel $panel, int $position, string $description): self
+    public static function output(Uuid $id, Panel $panel, int $position, string $label, string $description): self
     {
-        $cable = new self($id, $panel, CableKind::Output, $position);
+        $cable = new self($id, $panel, CableKind::Output, $position, $label);
         $cable->description = $description;
 
         return $cable;

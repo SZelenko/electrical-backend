@@ -11,7 +11,7 @@ use Symfony\Component\Uid\Uuid;
 
 /**
  * A wire drawn in the panel. Each end is stored as flat columns (start_* / end_*); exactly one of
- * element (+ pole index + side), terminal block (+ terminal index + contact side) and cable wire is set per end
+ * element (+ pole index + side), terminal block (+ terminal index + contact side), cable wire and busbar (+ feed index) is set per end
  * (enforced by CHECK constraints in the migration, by the content validator in the app).
  * The WireEndpoint value objects `start` / `end` are views over those columns.
  */
@@ -62,6 +62,13 @@ class PanelWire
     #[ORM\JoinColumn(name: 'start_cable_wire_id', nullable: true, onDelete: 'CASCADE')]
     private ?CableWire $startCableWire = null;
 
+    #[ORM\ManyToOne(targetEntity: Busbar::class)]
+    #[ORM\JoinColumn(name: 'start_busbar_id', nullable: true, onDelete: 'CASCADE')]
+    private ?Busbar $startBusbar = null;
+
+    #[ORM\Column(type: Types::SMALLINT, nullable: true)]
+    private ?int $startBusbarFeedIndex = null;
+
     #[ORM\ManyToOne(targetEntity: Element::class)]
     #[ORM\JoinColumn(name: 'end_element_id', nullable: true, onDelete: 'CASCADE')]
     private ?Element $endElement = null;
@@ -86,6 +93,13 @@ class PanelWire
     #[ORM\JoinColumn(name: 'end_cable_wire_id', nullable: true, onDelete: 'CASCADE')]
     private ?CableWire $endCableWire = null;
 
+    #[ORM\ManyToOne(targetEntity: Busbar::class)]
+    #[ORM\JoinColumn(name: 'end_busbar_id', nullable: true, onDelete: 'CASCADE')]
+    private ?Busbar $endBusbar = null;
+
+    #[ORM\Column(type: Types::SMALLINT, nullable: true)]
+    private ?int $endBusbarFeedIndex = null;
+
     public WireEndpoint $start {
         get => WireEndpoint::fromColumns(
             $this->startElement,
@@ -95,6 +109,8 @@ class PanelWire
             $this->startTerminalIndex,
             $this->startCableWire,
             $this->startContactSide,
+            $this->startBusbar,
+            $this->startBusbarFeedIndex,
         );
     }
 
@@ -107,6 +123,8 @@ class PanelWire
             $this->endTerminalIndex,
             $this->endCableWire,
             $this->endContactSide,
+            $this->endBusbar,
+            $this->endBusbarFeedIndex,
         );
     }
 
@@ -132,6 +150,8 @@ class PanelWire
         $this->startTerminalIndex = $start->terminalIndex;
         $this->startCableWire = $start->cableWire;
         $this->startContactSide = $start->contactSide;
+        $this->startBusbar = $start->busbar;
+        $this->startBusbarFeedIndex = $start->busbarFeedIndex;
 
         $this->endElement = $end->element;
         $this->endPoleIndex = $end->poleIndex;
@@ -140,5 +160,7 @@ class PanelWire
         $this->endTerminalIndex = $end->terminalIndex;
         $this->endCableWire = $end->cableWire;
         $this->endContactSide = $end->contactSide;
+        $this->endBusbar = $end->busbar;
+        $this->endBusbarFeedIndex = $end->busbarFeedIndex;
     }
 }

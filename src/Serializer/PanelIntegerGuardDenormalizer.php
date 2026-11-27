@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Serializer;
 
 use Symfony\Component\DependencyInjection\Attribute\AutoconfigureTag;
+use Symfony\Component\Serializer\Normalizer\AbstractNormalizer;
 use Symfony\Component\Serializer\Normalizer\DenormalizerAwareInterface;
 use Symfony\Component\Serializer\Normalizer\DenormalizerAwareTrait;
 use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
@@ -17,6 +18,10 @@ use Symfony\Component\Serializer\Normalizer\DenormalizerInterface;
  * serializer reports the usual 422 type violation on the property path and nothing is truncated.
  * JSON does not distinguish `24` from `24.0`, so a float without a fractional part that fits a PHP
  * int is accepted and converted to int first; `24.5` and out-of-range values such as `1e20` are rejected.
+ *
+ * For the content DTOs it also requires every constructor parameter without a default to be present
+ * (REQUIRE_ALL_PROPERTIES): a missing key is a 422 on its path instead of being filled with null for
+ * nullable parameters. Parameters with a default (the per-kind endpoint fields, bends) stay optional.
  */
 #[AutoconfigureTag('serializer.normalizer', ['priority' => 100])]
 final class PanelIntegerGuardDenormalizer implements DenormalizerInterface, DenormalizerAwareInterface
@@ -63,6 +68,9 @@ final class PanelIntegerGuardDenormalizer implements DenormalizerInterface, Deno
         $guarded = \is_array($context[self::GUARDED] ?? null) ? $context[self::GUARDED] : [];
         $guarded[$type] = true;
         $context[self::GUARDED] = $guarded;
+        if (str_starts_with($type, self::NAMESPACES[0])) {
+            $context[AbstractNormalizer::REQUIRE_ALL_PROPERTIES] = true;
+        }
 
         return $this->denormalizer->denormalize($data, $type, $format, $context);
     }

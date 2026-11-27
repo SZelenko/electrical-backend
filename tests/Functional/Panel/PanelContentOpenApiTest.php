@@ -28,7 +28,8 @@ final class PanelContentOpenApiTest extends ApiTestCase
     {
         $schema = $this->schemas()['PanelContent'];
 
-        self::assertSame(['inputCables', 'outputCables', 'terminalRow', 'rails', 'wires'], $schema['required']);
+        self::assertSame(['railWidthModules', 'inputCables', 'outputCables', 'terminalRow', 'rails', 'wires'], $schema['required']);
+        self::assertSame('integer', $schema['properties']['railWidthModules']['type']);
         self::assertSame('array', $schema['properties']['terminalRow']['type']);
         self::assertSame('#/components/schemas/TerminalBlockDto', $schema['properties']['terminalRow']['items']['$ref']);
     }
@@ -72,5 +73,53 @@ final class PanelContentOpenApiTest extends ApiTestCase
 
         self::assertArrayNotHasKey('terminalSide', $schemas['EndpointDto']['properties']);
         self::assertArrayNotHasKey('terminalRow', $schemas['RailDto']['properties']);
+    }
+
+    public function testRailSchemaHasBusbarsAndNoWidthSuccess(): void
+    {
+        $schema = $this->schemas()['RailDto'];
+
+        self::assertContains('busbars', $schema['required']);
+        self::assertSame('array', $schema['properties']['busbars']['type']);
+        self::assertSame('#/components/schemas/BusbarDto', $schema['properties']['busbars']['items']['$ref']);
+    }
+
+    public function testRailSchemaHasNoWidthModulesError(): void
+    {
+        $schema = $this->schemas()['RailDto'];
+
+        self::assertArrayNotHasKey('widthModules', $schema['properties']);
+        self::assertNotContains('widthModules', $schema['required']);
+    }
+
+    public function testBusbarSchemaSuccess(): void
+    {
+        $schema = $this->schemas()['BusbarDto'];
+
+        self::assertSame(['id', 'type', 'colour', 'firstElementId', 'count'], $schema['required']);
+        self::assertSame(['string', 'null'], $schema['properties']['colour']['type']);
+        self::assertSame(['black', 'brown', 'red', 'blue', 'green-yellow', null], $schema['properties']['colour']['enum']);
+        self::assertSame(['L', 'LN'], $schema['properties']['type']['enum']);
+        self::assertSame('integer', $schema['properties']['count']['type']);
+    }
+
+    public function testCableSchemasRequireLabelSuccess(): void
+    {
+        foreach (['InputCableDto', 'OutputCableDto'] as $name) {
+            $schema = $this->schemas()[$name];
+
+            self::assertContains('label', $schema['required'], $name);
+            self::assertSame('string', $schema['properties']['label']['type'], $name);
+        }
+    }
+
+    public function testEndpointSchemaHasBusbarKindSuccess(): void
+    {
+        $schema = $this->schemas()['EndpointDto'];
+
+        self::assertContains('busbar', $schema['properties']['kind']['enum']);
+        self::assertArrayHasKey('busbarId', $schema['properties']);
+        self::assertArrayHasKey('feedIndex', $schema['properties']);
+        self::assertSame(['kind'], $schema['required'], 'busbarId and feedIndex are optional on input.');
     }
 }

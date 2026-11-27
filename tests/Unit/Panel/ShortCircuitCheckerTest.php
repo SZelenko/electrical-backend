@@ -76,6 +76,20 @@ final class ShortCircuitCheckerTest extends TestCase
             'row_block_wrong_width_is_rejected',
             'contact_side_top_on_a_rail_block_is_rejected',
             'row_contact_top_to_bottom_same_node_is_rejected',
+            'busbar_l_joins_covered_pole0_inputs_short',
+            'busbar_l_feed_and_covered_input_short',
+            'busbar_ln_sources_on_l_and_n_no_short',
+            'busbar_ln_wire_between_feeds_short',
+            'busbar_ln_one_pole_device_neutral_not_joined_no_short',
+            'busbar_four_pole_device_pole2_never_joined_no_short',
+            'busbar_four_pole_device_pole1_joined_to_feed_n_short',
+            'busbar_device_off_feed_l_vs_pole0_output_no_short',
+            'busbar_device_on_feed_l_vs_pole0_output_short',
+            'busbar_all_sides_swapped_same_result_short',
+            'busbar_all_sides_swapped_ln_no_short',
+            'busbar_does_not_cover_device_beyond_count_no_short',
+            'busbar_l_feed_index_1_is_rejected',
+            'busbar_count_beyond_the_rail_items_is_rejected',
         ] as $required) {
             self::assertContains($required, $names);
         }
@@ -123,6 +137,7 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         // Two separate short circuits: (11,12) via wire 40 and (21,22) via wire 41, written in reverse order.
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [
                 B::inputCable(20, [B::uuid(22), B::uuid(21)]),
                 B::inputCable(10, [B::uuid(12), B::uuid(11)]),
@@ -149,10 +164,11 @@ final class ShortCircuitCheckerTest extends TestCase
     public function testTerminalsListEveryAttachedEndpointOnceSuccess(): void
     {
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
-            'rails' => [B::rail(30, 24, [], [B::block(32, 0, 1, 4)])],
+            'rails' => [B::rail(30, [], [B::block(32, 0, 1, 4)])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::terminalEnd(32, 0)),
                 B::wire(41, B::cableWireEnd(12), B::terminalEnd(32, 1)),
@@ -169,10 +185,11 @@ final class ShortCircuitCheckerTest extends TestCase
     public function testBothSidesOfOneContactAreListedOnceWithoutContactSideSuccess(): void
     {
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13), B::uuid(14)])],
             'outputCables' => [],
             'terminalRow' => [B::rowBlock(50, 0, 2)],
-            'rails' => [B::rail(30, 24, [], [B::block(32, 0, 1, 2)])],
+            'rails' => [B::rail(30, [], [B::block(32, 0, 1, 2)])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::terminalEnd(50, 0, 'top')),
                 B::wire(41, B::cableWireEnd(12), B::terminalEnd(50, 0, 'bottom')),
@@ -200,6 +217,69 @@ final class ShortCircuitCheckerTest extends TestCase
         }
     }
 
+    public function testBusbarFeedsAreListedAsTerminalsSortedByKeySuccess(): void
+    {
+        $content = B::toContent([
+            'railWidthModules' => 24,
+            'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
+            'outputCables' => [],
+            'terminalRow' => [],
+            'rails' => [B::rail(30, [B::element(31, 0, 1, 2), B::element(32, 1, 1, 2)], [], 0, [B::busbar(60, 31, 2, 'LN')])],
+            'wires' => [
+                B::wire(40, B::cableWireEnd(11), B::busbarEnd(60, 0)),
+                B::wire(41, B::cableWireEnd(12), B::poleEnd(32, 0, 'input')),
+            ],
+        ]);
+
+        $groups = new ShortCircuitChecker()->check($content);
+
+        self::assertCount(1, $groups);
+        $keys = array_map(static fn($t): string => $t->key(), $groups[0]->terminals);
+        $sorted = $keys;
+        sort($sorted, SORT_STRING);
+        self::assertSame($sorted, $keys);
+        self::assertContains('b:' . B::uuid(60) . ':0', $keys);
+        self::assertContains('p:' . B::uuid(32) . ':0:input', $keys);
+        self::assertContains('w:' . B::uuid(11), $keys);
+        self::assertSame(\count($keys), \count(array_unique($keys)));
+    }
+
+    public function testBusbarOverInvalidCoverageJoinsOnlyTheValidPrefixSuccess(): void
+    {
+        // The checker works on valid content only; an ATS in the way (invalid) only the valid prefix of the walk (the anchor) is joined.
+        $content = B::toContent([
+            'railWidthModules' => 24,
+            'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
+            'outputCables' => [],
+            'terminalRow' => [],
+            'rails' => [B::rail(30, [B::element(31, 0), B::ats(32, 1, 2), B::element(33, 3)], [], 0, [B::busbar(60, 31, 3)])],
+            'wires' => [
+                B::wire(40, B::cableWireEnd(11), B::busbarEnd(60, 0)),
+                B::wire(41, B::cableWireEnd(12), B::poleEnd(33, 0, 'input')),
+            ],
+        ]);
+
+        self::assertSame([], new ShortCircuitChecker()->check($content));
+    }
+
+    public function testEndpointKeyAndContactSideCopyOfABusbarEndpointSuccess(): void
+    {
+        $endpoint = B::toContent([
+            'railWidthModules' => 24,
+            'inputCables' => [B::inputCable(10)],
+            'outputCables' => [],
+            'terminalRow' => [],
+            'rails' => [],
+            'wires' => [B::wire(40, B::cableWireEnd(11), B::busbarEnd(60, 1))],
+        ])->wires[0]->end;
+
+        self::assertSame('b:' . B::uuid(60) . ':1', $endpoint->key());
+        $copy = $endpoint->withoutContactSide();
+        self::assertSame(B::uuid(60), $copy->busbarId);
+        self::assertSame(1, $copy->feedIndex);
+        self::assertSame($endpoint->key(), $copy->key());
+    }
+
     public function testEmptyContentHasNoGroupsSuccess(): void
     {
         self::assertSame([], new ShortCircuitChecker()->check(B::toContent(B::minimal())));
@@ -208,6 +288,7 @@ final class ShortCircuitCheckerTest extends TestCase
     public function testPanelWithoutWiresHasNoGroupsEvenWithManySourcesSuccess(): void
     {
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13), B::uuid(14)])],
             'outputCables' => [],
             'terminalRow' => [],
@@ -221,6 +302,7 @@ final class ShortCircuitCheckerTest extends TestCase
     public function testThreeSourcesInOneGroupAreOneGroupSuccess(): void
     {
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13)])],
             'outputCables' => [],
             'terminalRow' => [],
@@ -242,10 +324,11 @@ final class ShortCircuitCheckerTest extends TestCase
         // Same layout as a short circuit through a closed element, but the element is off.
         $element = B::element(31, 0, 1, 1, false);
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
-            'rails' => [B::rail(30, 24, [$element])],
+            'rails' => [B::rail(30, [$element])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
                 B::wire(41, B::cableWireEnd(12), B::poleEnd(31, 0, 'output')),
@@ -256,10 +339,11 @@ final class ShortCircuitCheckerTest extends TestCase
 
         $element['on'] = true;
         $content = B::toContent([
+            'railWidthModules' => 24,
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
-            'rails' => [B::rail(30, 24, [$element])],
+            'rails' => [B::rail(30, [$element])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
                 B::wire(41, B::cableWireEnd(12), B::poleEnd(31, 0, 'output')),

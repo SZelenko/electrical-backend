@@ -7,14 +7,17 @@ namespace App\Panel;
 use App\Entity\Panel\Cable;
 use App\Entity\Panel\ContactSide;
 use App\Entity\Panel\DinRail;
+use App\Entity\Panel\Panel;
 use App\Entity\Panel\ElementKind;
 use App\Entity\Panel\EndpointKind;
 use App\Entity\Panel\PanelWireBend;
 use App\Entity\Panel\TerminalSide;
+use App\Panel\Content\BusbarDto;
 use App\Panel\Content\CableWireDto;
 use App\Panel\Content\ElementDto;
 use App\Panel\Content\EndpointDto;
 use App\Panel\Content\PanelContent;
+use App\Panel\Content\RailDto;
 use App\Panel\Content\TerminalBlockDto;
 use App\Panel\Content\WireDto;
 
@@ -36,10 +39,15 @@ final readonly class PanelContentValidator
     public const int MAX_BENDS_PER_WIRE = 50;
     public const int MAX_TOTAL_BENDS = 20000;
     public const int MAX_CABLE_WIRES = 4;
-    public const int MAX_RAIL_WIDTH = 60;
     public const int MAX_POLES_PER_MODULE = 4;
     public const int MAX_ROW_BLOCKS = 60;
-    public const int ROW_WIDTH_MODULES = 60;
+    public const int MODULE = 175;
+    public const int CABLE_PAD = 50;
+    public const int CABLE_PITCH = 100;
+    public const int CABLE_GAP = 100;
+    public const int MAX_BUSBARS_PER_RAIL = 30;
+    public const int MIN_BUSBAR_COUNT = 2;
+    public const int MAX_BUSBAR_COUNT = 60;
     public const int MAX_ROW_BLOCK_TERMINALS = 60;
     public const int MAX_RAIL_BLOCK_TERMINALS = 12;
     public const int ATS_MIN_WIDTH = 2;
@@ -61,10 +69,22 @@ final readonly class PanelContentValidator
         /** @var array<string, array{int, bool}> $blocks block id => [terminal count, in the terminal row] */
         $blocks = [];
 
-        $this->validateCables($run, $content, $cableWires);
-        $this->validateTerminalRow($run, $content, $blocks);
-        $this->validateRails($run, $content, $terminals, $blocks);
-        $this->validateWires($run, $content, $cableWires, $terminals, $blocks);
+        /** @var array<string, int> $busbars busbar id => feed count */
+        $busbars = [];
+
+        $railWidthOk = $run->intRange(
+            $content->railWidthModules,
+            Panel::MIN_RAIL_WIDTH_MODULES,
+            Panel::MAX_RAIL_WIDTH_MODULES,
+            'content.railWidthModules',
+        );
+        $railWidth = $railWidthOk ? $content->railWidthModules : null;
+
+        $inputsOk = $this->validateCables($run, $content, $cableWires);
+        $rowCapacity = $railWidthOk && $inputsOk ? $railWidth - self::rowStartModules($content) : null;
+        $this->validateTerminalRow($run, $content, $blocks, $rowCapacity);
+        $this->validateRails($run, $content, $terminals, $blocks, $busbars, $railWidth);
+        $this->validateWires($run, $content, $cableWires, $terminals, $blocks, $busbars);
 
         $violations = $run->violations();
         if (null !== $violations) {
@@ -72,28 +92,36 @@ final readonly class PanelContentValidator
         }
     }
 
-    /** @param array<string, true> $cableWires */
-    private function validateCables(ValidationRun $run, PanelContent $content, array &$cableWires): void
+    /**
+     * @param array<string, true> $cableWires
+     *
+     * @return bool whether the input cables are valid enough to compute the row start
+     */
+    private function validateCables(ValidationRun $run, PanelContent $content, array &$cableWires): bool
     {
+        $inputsOk = true;
         $inputCables = $this->listOrViolation($run, $content->inputCables, 'content.inputCables');
         $outputCables = $this->listOrViolation($run, $content->outputCables, 'content.outputCables');
 
         $inputs = \count($inputCables);
         if (!self::isList($content->inputCables)) {
-            // the non-list violation is already reported
+            $inputsOk = false;
         } elseif ($inputs < 1) {
             $run->add('content.inputCables', 'At least one input cable is required.');
+            $inputsOk = false;
         } elseif ($inputs > self::MAX_INPUT_CABLES) {
+            $inputsOk = false;
             $run->add('content.inputCables', \sprintf('At most %d input cables are allowed.', self::MAX_INPUT_CABLES));
         }
 
         foreach ($inputCables as $i => $cable) {
             $path = "content.inputCables[$i]";
             $run->claimId($cable->id, "$path.id");
+            $run->maxLength($cable->label, self::MAX_LABEL_LENGTH, "$path.label", $cable->id);
             $run->decimalRange($cable->voltage, 0.0, true, Cable::INPUT_LABEL_MAX_VOLTAGE, Cable::INPUT_LABEL_SCALE_VOLTAGE, "$path.voltage", $cable->id);
             $run->decimalRange($cable->frequency, 0.0, false, Cable::INPUT_LABEL_MAX_FREQUENCY, Cable::INPUT_LABEL_SCALE_FREQUENCY, "$path.frequency", $cable->id);
             $run->decimalRange($cable->crossSection, 0.0, true, Cable::INPUT_LABEL_MAX_CROSS_SECTION, Cable::INPUT_LABEL_SCALE_CROSS_SECTION, "$path.crossSection", $cable->id);
-            $this->validateCableWires($run, $cable->wires, $path, $cableWires);
+            $inputsOk = $this->validateCableWires($run, $cable->wires, $path, $cableWires) && $inputsOk;
         }
 
         if (\count($outputCables) > self::MAX_OUTPUT_CABLES) {
@@ -103,34 +131,60 @@ final readonly class PanelContentValidator
         foreach ($outputCables as $i => $cable) {
             $path = "content.outputCables[$i]";
             $run->claimId($cable->id, "$path.id");
+            $run->maxLength($cable->label, self::MAX_LABEL_LENGTH, "$path.label", $cable->id);
             $run->maxLength($cable->description, self::MAX_DESCRIPTION_LENGTH, "$path.description", $cable->id);
             $this->validateCableWires($run, $cable->wires, $path, $cableWires);
         }
+
+        return $inputsOk;
     }
 
     /**
      * @param list<CableWireDto>   $wires
      * @param array<string, true>  $cableWires
+     *
+     * @return bool whether the wire count is valid (the row start depends on it)
      */
-    private function validateCableWires(ValidationRun $run, array $wires, string $path, array &$cableWires): void
+    private function validateCableWires(ValidationRun $run, array $wires, string $path, array &$cableWires): bool
     {
         if (!self::isList($wires)) {
             $run->add("$path.wires", 'Must be a JSON array (list), not an object.');
 
-            return;
+            return false;
         }
         $count = \count($wires);
-        if ($count < 1 || $count > self::MAX_CABLE_WIRES) {
+        $countOk = $count >= 1 && $count <= self::MAX_CABLE_WIRES;
+        if (!$countOk) {
             $run->add("$path.wires", \sprintf('A cable has 1 to %d wires.', self::MAX_CABLE_WIRES));
         }
         foreach ($wires as $j => $wire) {
             $run->claimId($wire->id, "$path.wires[$j].id");
             $cableWires[$wire->id] = true;
         }
+
+        return $countOk;
     }
 
-    /** @param array<string, array{int, bool}> $blocks */
-    private function validateTerminalRow(ValidationRun $run, PanelContent $content, array &$blocks): void
+    /**
+     * Module-aligned start of the terminal row: the width of the input-cable row plus one gap, in
+     * whole modules (integer tenths of a millimetre, see the geometry in panel-domain).
+     */
+    public static function rowStartModules(PanelContent $content): int
+    {
+        $width = 0;
+        foreach ($content->inputCables as $cable) {
+            $width += 2 * self::CABLE_PAD + \count($cable->wires) * self::CABLE_PITCH;
+        }
+        $width += (\count($content->inputCables) - 1) * self::CABLE_GAP;
+
+        return intdiv($width + self::CABLE_GAP + self::MODULE - 1, self::MODULE);
+    }
+
+    /**
+     * @param array<string, array{int, bool}> $blocks
+     * @param int|null                        $rowCapacity rail width minus the row start, null when the rail width or the input cables are invalid
+     */
+    private function validateTerminalRow(ValidationRun $run, PanelContent $content, array &$blocks, ?int $rowCapacity): void
     {
         $row = $this->listOrViolation($run, $content->terminalRow, 'content.terminalRow');
         if (\count($row) > self::MAX_ROW_BLOCKS) {
@@ -161,12 +215,12 @@ final readonly class PanelContentValidator
             $this->collectSpan(
                 $run,
                 $spans,
-                self::ROW_WIDTH_MODULES,
+                $rowCapacity,
                 $block->id,
                 $block->offsetModules,
                 $block->widthModules,
                 $path,
-                'Does not fit within the terminal row.',
+                'Does not fit within the terminal row (rail width minus the input cables).',
             );
         }
 
@@ -176,9 +230,16 @@ final readonly class PanelContentValidator
     /**
      * @param array<string, array{int, int}>  $terminals
      * @param array<string, array{int, bool}> $blocks
+     * @param array<string, int>              $busbars   busbar id => feed count
      */
-    private function validateRails(ValidationRun $run, PanelContent $content, array &$terminals, array &$blocks): void
-    {
+    private function validateRails(
+        ValidationRun $run,
+        PanelContent $content,
+        array &$terminals,
+        array &$blocks,
+        array &$busbars,
+        ?int $railWidth,
+    ): void {
         $rails = $this->listOrViolation($run, $content->rails, 'content.rails');
         if (\count($rails) > self::MAX_RAILS) {
             $run->add('content.rails', \sprintf('At most %d rails are allowed.', self::MAX_RAILS));
@@ -187,12 +248,12 @@ final readonly class PanelContentValidator
         foreach ($rails as $i => $rail) {
             $path = "content.rails[$i]";
             $run->claimId($rail->id, "$path.id");
-            $railWidthOk = $run->intRange($rail->widthModules, 1, self::MAX_RAIL_WIDTH, "$path.widthModules", $rail->id);
             $run->decimalRange($rail->spacingMm, 0.0, false, DinRail::MAX_SPACING_MM, DinRail::SPACING_SCALE, "$path.spacingMm", $rail->id);
-            $limit = $railWidthOk ? $rail->widthModules : null;
+            $limit = $railWidth;
 
             /** @var list<array{int, int, string, string}> $spans offset, end, item path, item id */
             $spans = [];
+            $geometryOk = null !== $limit && self::isList($rail->elements) && self::isList($rail->terminalBlocks);
             foreach ($this->listOrViolation($run, $rail->elements, "$path.elements") as $j => $element) {
                 $itemPath = "$path.elements[$j]";
                 $run->claimId($element->id, "$itemPath.id");
@@ -200,17 +261,84 @@ final readonly class PanelContentValidator
                 $terminals[$element->id] = ElementKind::Ats === $element->kind
                     ? [self::ATS_INPUTS, self::ATS_OUTPUTS]
                     : [\count($element->poles ?? []), \count($element->poles ?? [])];
-                $this->collectSpan($run, $spans, $limit, $element->id, $element->offsetModules, $element->widthModules, $itemPath, 'Does not fit within the rail width.');
+                $geometryOk = $this->collectSpan($run, $spans, $limit, $element->id, $element->offsetModules, $element->widthModules, $itemPath, 'Does not fit within the rail width.') && $geometryOk;
             }
             foreach ($this->listOrViolation($run, $rail->terminalBlocks, "$path.terminalBlocks") as $j => $block) {
                 $itemPath = "$path.terminalBlocks[$j]";
                 $run->claimId($block->id, "$itemPath.id");
                 $this->validateRailBlock($run, $block, $itemPath);
                 $blocks[$block->id] = [$block->terminalCount, false];
-                $this->collectSpan($run, $spans, $limit, $block->id, $block->offsetModules, $block->widthModules, $itemPath, 'Does not fit within the rail width.');
+                $geometryOk = $this->collectSpan($run, $spans, $limit, $block->id, $block->offsetModules, $block->widthModules, $itemPath, 'Does not fit within the rail width.') && $geometryOk;
             }
 
-            $this->checkOverlaps($run, $spans, 'Overlaps another item on the rail.');
+            $geometryOk = $this->checkOverlaps($run, $spans, 'Overlaps another item on the rail.') && $geometryOk;
+
+            $this->validateBusbars($run, $rail, $path, $geometryOk, $busbars);
+        }
+    }
+
+    /**
+     * @param array<string, int> $busbars       busbar id => feed count (registered even when the busbar is invalid)
+     * @param bool               $railItemsSane whether the rail has no offset/width/fit/overlap violations (the coverage walk is meaningful)
+     */
+    private function validateBusbars(ValidationRun $run, RailDto $rail, string $path, bool $railItemsSane, array &$busbars): void
+    {
+        $list = $this->listOrViolation($run, $rail->busbars, "$path.busbars");
+        if (\count($list) > self::MAX_BUSBARS_PER_RAIL) {
+            $run->add("$path.busbars", \sprintf('At most %d busbars per rail are allowed.', self::MAX_BUSBARS_PER_RAIL));
+
+            // Over the cap the payload is rejected anyway: skip every per-busbar check (and the id
+            // registration) so the cost stays bounded. Wires referencing these busbars then also
+            // report "unknown busbar", which is acceptable noise on an already rejected payload.
+            return;
+        }
+
+        /** @var array<string, ElementDto> $anchors element id => element (first occurrence), O(1) anchor lookup */
+        $anchors = [];
+        foreach ($rail->elements as $element) {
+            $anchors[$element->id] ??= $element;
+        }
+        $items = $railItemsSane ? BusbarCoverage::railItems($rail) : [];
+
+        /** @var array<string, true> $covered device ids covered by an earlier busbar */
+        $covered = [];
+        foreach ($list as $k => $busbar) {
+            $busbarPath = "$path.busbars[$k]";
+            $run->claimId($busbar->id, "$busbarPath.id");
+            $busbars[$busbar->id] = $busbar->type->feedCount();
+
+            $countOk = $run->intRange($busbar->count, self::MIN_BUSBAR_COUNT, self::MAX_BUSBAR_COUNT, "$busbarPath.count", $busbar->id);
+
+            $anchor = $anchors[$busbar->firstElementId] ?? null;
+            if (null === $anchor) {
+                $run->add("$busbarPath.firstElementId", 'Must refer to a device on the same rail.', $busbar->id);
+
+                continue;
+            }
+            if (ElementKind::Device !== $anchor->kind) {
+                $run->add("$busbarPath.firstElementId", 'Must refer to a device, not an ATS.', $busbar->id);
+
+                continue;
+            }
+            if (!$countOk || !$railItemsSane) {
+                continue;
+            }
+
+            $coverage = BusbarCoverage::walk($items, $busbar);
+            match ($coverage->reason) {
+                BusbarCoverageReason::None, BusbarCoverageReason::AnchorMissing => null,
+                BusbarCoverageReason::TooFew => $run->add("$busbarPath.count", \sprintf('Fewer than %d consecutive devices from the anchor to the rail end.', $busbar->count), $busbar->id),
+                BusbarCoverageReason::ForeignItem => $run->add("$busbarPath.count", 'The covered items must all be devices (an ATS or a terminal block is in the way).', $busbar->id),
+                BusbarCoverageReason::Gap => $run->add("$busbarPath.count", 'The covered devices must be adjacent (no free modules between them).', $busbar->id),
+                BusbarCoverageReason::MixedSides => $run->add($busbarPath, 'All covered devices must have the same sidesSwapped.', $busbar->id),
+            };
+
+            if (array_any($coverage->devices, static fn(ElementDto $d): bool => isset($covered[$d->id]))) {
+                $run->add("$busbarPath.firstElementId", 'Covers a device that another busbar already covers.', $busbar->id);
+            }
+            foreach ($coverage->devices as $device) {
+                $covered[$device->id] = true;
+            }
         }
     }
 
@@ -259,7 +387,7 @@ final readonly class PanelContentValidator
             return;
         }
         $poles = \count($element->poles);
-        $maxPoles = max(1, min($element->widthModules, self::MAX_RAIL_WIDTH) * self::MAX_POLES_PER_MODULE);
+        $maxPoles = max(1, min($element->widthModules, Panel::MAX_RAIL_WIDTH_MODULES) * self::MAX_POLES_PER_MODULE);
         if ($poles < 1 || $poles > $maxPoles) {
             $run->add(
                 "$path.poles",
@@ -281,6 +409,8 @@ final readonly class PanelContentValidator
     /**
      * @param list<array{int, int, string, string}> $spans
      * @param int|null                              $limit width of the container, null when it is invalid itself
+     *
+     * @return bool false when the span has an offset/width/fit violation
      */
     private function collectSpan(
         ValidationRun $run,
@@ -291,7 +421,7 @@ final readonly class PanelContentValidator
         int $width,
         string $path,
         string $fitMessage,
-    ): void {
+    ): bool {
         $valid = true;
         if ($offset < 0) {
             $run->add("$path.offsetModules", 'Must not be negative.', $id);
@@ -301,32 +431,44 @@ final readonly class PanelContentValidator
             $run->add("$path.widthModules", 'Must be at least 1.', $id);
             $valid = false;
         }
-        if ($valid && null !== $limit && $offset + $width > $limit) {
+        $fits = !($valid && null !== $limit && $offset + $width > $limit);
+        if (!$fits) {
             $run->add("$path.offsetModules", $fitMessage, $id);
         }
         if ($valid) {
             $spans[] = [$offset, $offset + $width, $path, $id];
         }
+
+        return $valid && $fits;
     }
 
-    /** @param list<array{int, int, string, string}> $spans */
-    private function checkOverlaps(ValidationRun $run, array $spans, string $message): void
+    /**
+     * @param list<array{int, int, string, string}> $spans
+     *
+     * @return bool false when some span overlaps another
+     */
+    private function checkOverlaps(ValidationRun $run, array $spans, string $message): bool
     {
+        $clean = true;
         usort($spans, static fn(array $a, array $b): int => [$a[0], $a[1]] <=> [$b[0], $b[1]]);
 
         $previousEnd = 0;
         foreach ($spans as [$offset, $end, $path, $id]) {
             if ($offset < $previousEnd) {
                 $run->add("$path.offsetModules", $message, $id);
+                $clean = false;
             }
             $previousEnd = max($previousEnd, $end);
         }
+
+        return $clean;
     }
 
     /**
      * @param array<string, true>             $cableWires
      * @param array<string, array{int, int}>  $terminals
      * @param array<string, array{int, bool}> $blocks
+     * @param array<string, int>              $busbars
      */
     private function validateWires(
         ValidationRun $run,
@@ -334,6 +476,7 @@ final readonly class PanelContentValidator
         array $cableWires,
         array $terminals,
         array $blocks,
+        array $busbars,
     ): void {
         $wires = $this->listOrViolation($run, $content->wires, 'content.wires');
         if (\count($wires) > self::MAX_WIRES) {
@@ -345,8 +488,8 @@ final readonly class PanelContentValidator
             $path = "content.wires[$i]";
             $run->claimId($wire->id, "$path.id");
 
-            $startOk = $this->validateEndpoint($run, $wire->start, "$path.start", $wire->id, $cableWires, $terminals, $blocks);
-            $endOk = $this->validateEndpoint($run, $wire->end, "$path.end", $wire->id, $cableWires, $terminals, $blocks);
+            $startOk = $this->validateEndpoint($run, $wire->start, "$path.start", $wire->id, $cableWires, $terminals, $blocks, $busbars);
+            $endOk = $this->validateEndpoint($run, $wire->end, "$path.end", $wire->id, $cableWires, $terminals, $blocks, $busbars);
             if ($startOk && $endOk && $wire->start->key() === $wire->end->key()) {
                 $run->add("$path.end", 'The two ends of a wire must differ.', $wire->id);
             }
@@ -402,6 +545,7 @@ final readonly class PanelContentValidator
      * @param array<string, true>             $cableWires
      * @param array<string, array{int, int}>  $terminals
      * @param array<string, array{int, bool}> $blocks
+     * @param array<string, int>              $busbars
      */
     private function validateEndpoint(
         ValidationRun $run,
@@ -411,16 +555,22 @@ final readonly class PanelContentValidator
         array $cableWires,
         array $terminals,
         array $blocks,
+        array $busbars,
     ): bool {
         $wellFormed = match ($endpoint->kind) {
             EndpointKind::Pole => null !== $endpoint->elementId && null !== $endpoint->poleIndex && null !== $endpoint->side
                 && null === $endpoint->terminalBlockId && null === $endpoint->terminalIndex && null === $endpoint->cableWireId
-                && null === $endpoint->contactSide,
+                && null === $endpoint->contactSide && null === $endpoint->busbarId && null === $endpoint->feedIndex,
             EndpointKind::Terminal => null !== $endpoint->terminalBlockId && null !== $endpoint->terminalIndex && null !== $endpoint->contactSide
-                && null === $endpoint->elementId && null === $endpoint->poleIndex && null === $endpoint->side && null === $endpoint->cableWireId,
+                && null === $endpoint->elementId && null === $endpoint->poleIndex && null === $endpoint->side && null === $endpoint->cableWireId && null === $endpoint->busbarId && null === $endpoint->feedIndex,
             EndpointKind::CableWire => null !== $endpoint->cableWireId
                 && null === $endpoint->elementId && null === $endpoint->poleIndex && null === $endpoint->side
-                && null === $endpoint->terminalBlockId && null === $endpoint->terminalIndex && null === $endpoint->contactSide,
+                && null === $endpoint->terminalBlockId && null === $endpoint->terminalIndex && null === $endpoint->contactSide
+                && null === $endpoint->busbarId && null === $endpoint->feedIndex,
+            EndpointKind::Busbar => null !== $endpoint->busbarId && null !== $endpoint->feedIndex
+                && null === $endpoint->elementId && null === $endpoint->poleIndex && null === $endpoint->side
+                && null === $endpoint->terminalBlockId && null === $endpoint->terminalIndex && null === $endpoint->contactSide
+                && null === $endpoint->cableWireId,
         };
         if (!$wellFormed) {
             $run->add($path, \sprintf(
@@ -430,6 +580,7 @@ final readonly class PanelContentValidator
                     EndpointKind::Pole => 'elementId, poleIndex and side',
                     EndpointKind::Terminal => 'terminalBlockId, terminalIndex and contactSide',
                     EndpointKind::CableWire => 'cableWireId',
+                    EndpointKind::Busbar => 'busbarId and feedIndex',
                 },
             ), $wireId);
 
@@ -480,6 +631,20 @@ final readonly class PanelContentValidator
                 }
 
                 return $ok;
+            case EndpointKind::Busbar:
+                $feeds = $busbars[(string) $endpoint->busbarId] ?? null;
+                if (null === $feeds) {
+                    $run->add($path, 'Refers to a busbar that is not part of this content.', $wireId);
+
+                    return false;
+                }
+                if ((int) $endpoint->feedIndex < 0 || (int) $endpoint->feedIndex >= $feeds) {
+                    $run->add("$path.feedIndex", \sprintf('Must be between 0 and %d.', $feeds - 1), $wireId);
+
+                    return false;
+                }
+
+                return true;
             case EndpointKind::CableWire:
                 if (!isset($cableWires[(string) $endpoint->cableWireId])) {
                     $run->add($path, 'Refers to a cable wire that is not part of this content.', $wireId);

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Panel;
 
+use App\Entity\Panel\Busbar;
 use App\Entity\Panel\Cable;
 use App\Entity\Panel\CableKind;
 use App\Entity\Panel\CableWire;
@@ -18,6 +19,7 @@ use App\Entity\Panel\PanelWireBend;
 use App\Entity\Panel\TerminalBlock;
 use App\Entity\Panel\WireEndpoint;
 use App\Panel\Content\BendDto;
+use App\Panel\Content\BusbarDto;
 use App\Panel\Content\CableWireDto;
 use App\Panel\Content\ElementDto;
 use App\Panel\Content\EndpointDto;
@@ -46,7 +48,7 @@ final readonly class PanelContentMapper
         $wireById = [];
 
         foreach (self::values($content->inputCables) as $i => $dto) {
-            $cable = Cable::input(Uuid::fromString($dto->id), $panel, $i, $dto->voltage, $dto->frequency, $dto->crossSection);
+            $cable = Cable::input(Uuid::fromString($dto->id), $panel, $i, $dto->label, $dto->voltage, $dto->frequency, $dto->crossSection);
             $cables[] = $cable;
             foreach (self::values($dto->wires) as $j => $wireDto) {
                 $wire = new CableWire(Uuid::fromString($wireDto->id), $cable, $j, $wireDto->colour);
@@ -54,7 +56,7 @@ final readonly class PanelContentMapper
             }
         }
         foreach (self::values($content->outputCables) as $i => $dto) {
-            $cable = Cable::output(Uuid::fromString($dto->id), $panel, $i, $dto->description);
+            $cable = Cable::output(Uuid::fromString($dto->id), $panel, $i, $dto->label, $dto->description);
             $cables[] = $cable;
             foreach (self::values($dto->wires) as $j => $wireDto) {
                 $wire = new CableWire(Uuid::fromString($wireDto->id), $cable, $j, $wireDto->colour);
@@ -70,6 +72,9 @@ final readonly class PanelContentMapper
         $elementById = [];
         /** @var array<string, TerminalBlock> $blockById */
         $blockById = [];
+        $busbars = [];
+        /** @var array<string, Busbar> $busbarById */
+        $busbarById = [];
 
         foreach (self::values($content->terminalRow) as $dto) {
             $block = TerminalBlock::inRow(
@@ -85,7 +90,7 @@ final readonly class PanelContentMapper
         }
 
         foreach (self::values($content->rails) as $i => $railDto) {
-            $rail = new DinRail(Uuid::fromString($railDto->id), $panel, $i, $railDto->widthModules, $railDto->spacingMm);
+            $rail = new DinRail(Uuid::fromString($railDto->id), $panel, $i, $railDto->spacingMm);
             $rails[] = $rail;
             foreach (self::values($railDto->elements) as $dto) {
                 $element = ElementKind::Ats === $dto->kind
@@ -127,6 +132,15 @@ final readonly class PanelContentMapper
                 );
                 $blocks[] = $blockById[$dto->id] = $block;
             }
+            foreach (self::values($railDto->busbars) as $dto) {
+                $busbars[] = $busbarById[$dto->id] = new Busbar(
+                    Uuid::fromString($dto->id),
+                    $elementById[$dto->firstElementId],
+                    $dto->type,
+                    $dto->colour,
+                    $dto->count,
+                );
+            }
         }
 
         $wires = [];
@@ -138,8 +152,8 @@ final readonly class PanelContentMapper
                 $i,
                 $dto->colour,
                 $dto->crossSection,
-                $this->resolve($dto->start, $elementById, $blockById, $wireById),
-                $this->resolve($dto->end, $elementById, $blockById, $wireById),
+                $this->resolve($dto->start, $elementById, $blockById, $wireById, $busbarById),
+                $this->resolve($dto->end, $elementById, $blockById, $wireById, $busbarById),
             );
             $wires[] = $wire;
             foreach (self::values($dto->bends) as $k => $bend) {
@@ -147,10 +161,10 @@ final readonly class PanelContentMapper
             }
         }
 
-        return new PanelTree($cables, $cableWires, $rails, $elements, $poles, $blocks, $wires, $bends);
+        return new PanelTree($cables, $cableWires, $rails, $elements, $poles, $blocks, $busbars, $wires, $bends);
     }
 
-    public function toContent(PanelTree $tree): PanelContent
+    public function toContent(PanelTree $tree, int $railWidthModules): PanelContent
     {
         /** @var array<string, list<CableWireDto>> $wiresByCable */
         $wiresByCable = [];
@@ -170,13 +184,14 @@ final readonly class PanelContentMapper
             if (CableKind::Input === $cable->kind) {
                 $inputCables[] = new InputCableDto(
                     $id,
+                    $cable->label,
                     (float) $cable->voltageV,
                     (float) $cable->frequencyHz,
                     (float) $cable->crossSectionMm2,
                     $wires,
                 );
             } else {
-                $outputCables[] = new OutputCableDto($id, (string) $cable->description, $wires);
+                $outputCables[] = new OutputCableDto($id, $cable->label, (string) $cable->description, $wires);
             }
         }
 
@@ -227,6 +242,15 @@ final readonly class PanelContentMapper
         usort($rowBlocks, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
         $terminalRow = array_map(static fn(array $item): TerminalBlockDto => $item[1], $rowBlocks);
 
+        /** @var array<string, list<array{int, BusbarDto}>> $busbarsByRail */
+        $busbarsByRail = [];
+        foreach ($tree->busbars as $busbar) {
+            $busbarsByRail[$busbar->firstElement->rail->id->toRfc4122()][] = [
+                $busbar->firstElement->offsetModules,
+                new BusbarDto($busbar->id->toRfc4122(), $busbar->type, $busbar->colour, $busbar->firstElement->id->toRfc4122(), $busbar->deviceCount),
+            ];
+        }
+
         $rails = $tree->rails;
         usort($rails, static fn(DinRail $a, DinRail $b): int => $a->position <=> $b->position);
         $railDtos = [];
@@ -243,7 +267,15 @@ final readonly class PanelContentMapper
                     $railBlocks[] = $item;
                 }
             }
-            $railDtos[] = new RailDto($id, $rail->widthModules, (float) $rail->spacingMm, $railElements, $railBlocks);
+            $railBusbars = $busbarsByRail[$id] ?? [];
+            usort($railBusbars, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+            $railDtos[] = new RailDto(
+                $id,
+                (float) $rail->spacingMm,
+                $railElements,
+                $railBlocks,
+                array_map(static fn(array $item): BusbarDto => $item[1], $railBusbars),
+            );
         }
 
         /** @var array<string, list<BendDto>> $bendsByWire */
@@ -269,15 +301,16 @@ final readonly class PanelContentMapper
             );
         }
 
-        return new PanelContent($inputCables, $outputCables, $terminalRow, $railDtos, $wireDtos);
+        return new PanelContent($railWidthModules, $inputCables, $outputCables, $terminalRow, $railDtos, $wireDtos);
     }
 
     /**
      * @param array<string, Element>       $elements
      * @param array<string, TerminalBlock> $blocks
      * @param array<string, CableWire>     $cableWires
+     * @param array<string, Busbar>        $busbars
      */
-    private function resolve(EndpointDto $dto, array $elements, array $blocks, array $cableWires): WireEndpoint
+    private function resolve(EndpointDto $dto, array $elements, array $blocks, array $cableWires, array $busbars): WireEndpoint
     {
         return match ($dto->kind) {
             EndpointKind::Pole => WireEndpoint::pole(
@@ -291,6 +324,7 @@ final readonly class PanelContentMapper
                 $dto->contactSide ?? throw new \LogicException('A terminal endpoint without a contact side passed validation.'),
             ),
             EndpointKind::CableWire => WireEndpoint::cableWire($cableWires[(string) $dto->cableWireId]),
+            EndpointKind::Busbar => WireEndpoint::busbar($busbars[(string) $dto->busbarId], (int) $dto->feedIndex),
         };
     }
 
@@ -312,6 +346,11 @@ final readonly class PanelContentMapper
             EndpointKind::CableWire => new EndpointDto(
                 EndpointKind::CableWire,
                 cableWireId: $endpoint->cableWire?->id->toRfc4122(),
+            ),
+            EndpointKind::Busbar => new EndpointDto(
+                EndpointKind::Busbar,
+                busbarId: $endpoint->busbar?->id->toRfc4122(),
+                feedIndex: $endpoint->busbarFeedIndex,
             ),
         };
     }

@@ -122,4 +122,94 @@ final class PanelContentValidatorTest extends TestCase
 
         $this->expectNotToPerformAssertions();
     }
+
+    /** @return iterable<string, array{list<int>, int}> wire counts per input cable => row start module */
+    public static function rowStarts(): iterable
+    {
+        yield '1 cable, 1 wire' => [[1], 2];
+        yield '1 cable, 2 wires' => [[2], 3];
+        yield '1 cable, 3 wires' => [[3], 3];
+        yield '1 cable, 4 wires' => [[4], 4];
+        yield '2 cables, 3 + 2 wires' => [[3, 2], 6];
+        yield '2 cables, 1 + 1 wires' => [[1, 1], 4];
+        yield '20 cables, 4 wires' => [array_fill(0, 20, 4), 69];
+    }
+
+    /** @param list<int> $wireCounts */
+    #[DataProvider('rowStarts')]
+    public function testRowStartModulesSuccess(array $wireCounts, int $expected): void
+    {
+        $cables = [];
+        foreach ($wireCounts as $i => $count) {
+            $cables[] = B::inputCable(100 + 10 * $i, array_map(static fn(int $k): string => B::uuid(1000 + 100 * $i + $k), range(1, $count)));
+        }
+        $content = B::with(B::minimal(), ['inputCables' => $cables]);
+
+        self::assertSame($expected, PanelContentValidator::rowStartModules(B::toContent($content)));
+    }
+
+    /**
+     * @param Content      $content
+     * @param list<string> $paths
+     */
+    #[DataProvider('skippedFitChecks')]
+    public function testFitChecksAreSkippedWhenTheirInputIsInvalidError(array $content, array $paths): void
+    {
+        try {
+            new PanelContentValidator()->validate(B::toContent($content));
+            self::fail('The content must be rejected.');
+        } catch (PanelValidationException $e) {
+            self::assertEqualsCanonicalizing($paths, array_map(static fn(Violation $v): string => $v->propertyPath, $e->violations));
+        }
+    }
+
+    /** @return iterable<string, array{Content, list<string>}> */
+    public static function skippedFitChecks(): iterable
+    {
+        yield 'invalid rail width: no fit message, no row message' => [B::with(B::sample(), [
+            'railWidthModules' => 0,
+            'terminalRow' => [B::rowBlock(50, 0, 2)],
+        ]), ['content.railWidthModules']];
+        yield 'no input cable: no row message' => [B::with(B::sample(), [
+            'inputCables' => [],
+            'wires' => [],
+            'terminalRow' => [B::rowBlock(50, 0, 2)],
+        ]), ['content.inputCables']];
+        yield 'invalid wire count of an input cable: no row message' => [B::with(B::sample(), [
+            'inputCables.0.wires' => [],
+            'wires' => [],
+            'terminalRow' => [B::rowBlock(50, 0, 2)],
+        ]), ['content.inputCables[0].wires']];
+        yield 'invalid width of a row block: width message only' => [B::with(B::sample(), [
+            'terminalRow' => [B::block(50, 100, 0, 2)],
+        ]), ['content.terminalRow[0].widthModules']];
+        yield 'invalid width of a rail element: width message only' => [B::with(B::sample(), [
+            'rails.0.elements.0.widthModules' => 0,
+            'rails.0.elements.0.poles' => [['transit' => false]],
+            'wires' => [],
+        ]), ['content.rails[0].elements[0].widthModules']];
+    }
+
+    public function testHugeBusbarListIsRejectedQuicklyError(): void
+    {
+        $elements = [];
+        $busbars = [];
+        for ($i = 0; $i < 3000; ++$i) {
+            $elements[] = B::element(10000 + $i, $i % 60, 1);
+            $busbars[] = B::busbar(20000 + $i, 900000 + $i, 2);
+        }
+        $content = B::with(B::minimal(), ['railWidthModules' => 60, 'rails' => [B::rail(30, $elements, [], 0, $busbars)]]);
+
+        $start = hrtime(true);
+        try {
+            new PanelContentValidator()->validate(B::toContent($content));
+            self::fail('The content must be rejected.');
+        } catch (PanelValidationException $e) {
+            $elapsedSeconds = (hrtime(true) - $start) / 1e9;
+            foreach ($e->violations as $violation) {
+                self::assertDoesNotMatchRegularExpression('/busbars\[\d+\]/', $violation->propertyPath);
+            }
+            self::assertLessThan(2.0, $elapsedSeconds, 'Validation of an over-cap busbar list must stay cheap.');
+        }
+    }
 }

@@ -29,19 +29,15 @@ class DinRail
     #[ORM\Column(type: Types::SMALLINT)]
     public private(set) int $position;
 
-    #[ORM\Column(type: Types::SMALLINT)]
-    public private(set) int $widthModules;
-
     /** Distance from the previous rail in mm (for the first rail: from the top edge). */
     #[ORM\Column(type: Types::DECIMAL, precision: 6, scale: 1)]
     public private(set) string $spacingMm;
 
-    public function __construct(Uuid $id, Panel $panel, int $position, int $widthModules, float $spacingMm)
+    public function __construct(Uuid $id, Panel $panel, int $position, float $spacingMm)
     {
         $this->id = $id;
         $this->panel = $panel;
         $this->position = $position;
-        $this->widthModules = $widthModules;
         $this->spacingMm = Decimal::format($spacingMm, self::SPACING_SCALE);
     }
 }

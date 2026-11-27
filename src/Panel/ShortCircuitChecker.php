@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Panel;
 
 use App\Entity\Panel\AtsState;
+use App\Entity\Panel\BusbarType;
 use App\Entity\Panel\ElementKind;
 use App\Panel\Content\EndpointDto;
 use App\Panel\Content\TerminalBlockDto;
@@ -18,7 +19,8 @@ use App\Panel\Content\ShortCircuitGroup;
  * endpoints, a device pole joins its input and output terminal when the device is on or the pole
  * is transit, an ATS joins out1-in1 and out2-in2 in state A, out1-in3 and out2-in4 in state B and
  * nothing when off (it never joins sources A and B itself), a terminal block (on a rail or in the
- * terminal row) joins all its terminals. A short circuit is any connected group holding two or more
+ * terminal row) joins all its terminals, and a busbar joins its feed L to pole 0 (LN: feed N to pole 1,
+ * only for devices with at least two poles) of the input of every device it covers. A short circuit is any connected group holding two or more
  * different sources. Colours, the sides-swapped flag and the contact side play no part.
  */
 final readonly class ShortCircuitChecker
@@ -94,6 +96,16 @@ final readonly class ShortCircuitChecker
             }
             foreach ($rail->terminalBlocks as $block) {
                 $joinBar($block);
+            }
+            $railItems = BusbarCoverage::railItems($rail);
+            foreach ($rail->busbars as $busbar) {
+                // The content is valid here; poles 2 and 3 are never joined, sidesSwapped is irrelevant.
+                foreach (BusbarCoverage::walk($railItems, $busbar)->devices as $device) {
+                    $union("b:{$busbar->id}:0", "p:{$device->id}:0:input");
+                    if (BusbarType::LN === $busbar->type && \count($device->poles ?? []) >= 2) {
+                        $union("b:{$busbar->id}:1", "p:{$device->id}:1:input");
+                    }
+                }
             }
         }
 

@@ -115,14 +115,55 @@ final class ContentValidationTest extends PanelApiTestCase
             $c->set('inputCables.0.voltage', null);
         }, 'content.inputCables[0].voltage'];
         yield 'rail width is a float' => [static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 24.5);
-        }, 'content.rails[0].widthModules'];
+            $c->set('railWidthModules', 24.5);
+        }, 'content.railWidthModules'];
         yield 'rail width is 1e20' => [static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 1e20);
-        }, 'content.rails[0].widthModules'];
+            $c->set('railWidthModules', 1e20);
+        }, 'content.railWidthModules'];
         yield 'rail width is a string' => [static function (Doc $c): void {
-            $c->set('rails.0.widthModules', '24');
-        }, 'content.rails[0].widthModules'];
+            $c->set('railWidthModules', '24');
+        }, 'content.railWidthModules'];
+        yield 'rail width is missing' => [static function (Doc $c): void {
+            $c->unset('railWidthModules');
+        }, 'content.railWidthModules'];
+        yield 'rail width is null' => [static function (Doc $c): void {
+            $c->set('railWidthModules', null);
+        }, 'content.railWidthModules'];
+        yield 'input cable label is missing' => [static function (Doc $c): void {
+            $c->unset('inputCables.0.label');
+        }, 'content.inputCables[0].label'];
+        yield 'output cable label is missing' => [static function (Doc $c): void {
+            $c->unset('outputCables.0.label');
+        }, 'content.outputCables[0].label'];
+        yield 'input cable label is a number' => [static function (Doc $c): void {
+            $c->set('inputCables.0.label', 5);
+        }, 'content.inputCables[0].label'];
+        yield 'output cable label is null' => [static function (Doc $c): void {
+            $c->set('outputCables.0.label', null);
+        }, 'content.outputCables[0].label'];
+        yield 'rail busbars is missing' => [static function (Doc $c): void {
+            $c->unset('rails.0.busbars');
+        }, 'content.rails[0].busbars'];
+        yield 'busbar without a type' => [static function (Doc $c): void {
+            $c->set('rails.0.busbars', [['id' => B::uuid(60), 'firstElementId' => B::uuid(31), 'count' => 2]]);
+        }, 'content.rails[0].busbars[0].type'];
+        yield 'busbar with an unknown type' => [static function (Doc $c): void {
+            $c->set('rails.0.busbars', [B::busbar(60, 31, 2, 'LNPE')]);
+        }, 'content.rails[0].busbars[0].type'];
+        yield 'busbar count is a string' => [static function (Doc $c): void {
+            $c->set('rails.0.busbars', [['id' => B::uuid(60), 'type' => 'L', 'firstElementId' => B::uuid(31), 'count' => '2']]);
+        }, 'content.rails[0].busbars[0].count'];
+        yield 'busbar without a first element id' => [static function (Doc $c): void {
+            $c->set('rails.0.busbars', [['id' => B::uuid(60), 'type' => 'L', 'count' => 2]]);
+        }, 'content.rails[0].busbars[0].firstElementId'];
+        yield 'busbar endpoint feed index is a string' => [static function (Doc $c): void {
+            $c->set('rails.0.elements', [B::element(31, 0, 1), B::element(33, 1, 1)]);
+            $c->set('rails.0.busbars', [B::busbar(60, 31, 2)]);
+            $c->set('wires.0.end', ['kind' => 'busbar', 'busbarId' => B::uuid(60), 'feedIndex' => '0']);
+        }, 'content.wires[0].end.feedIndex'];
+        yield 'endpoint kind is a misspelled busbar' => [static function (Doc $c): void {
+            $c->set('wires.0.end.kind', 'busbars');
+        }, 'content.wires[0].end.kind'];
         yield 'unknown cable wire colour' => [static function (Doc $c): void {
             $c->set('inputCables.0.wires.0.colour', 'purple');
         }, 'content.inputCables[0].wires[0].colour'];
@@ -185,16 +226,16 @@ final class ContentValidationTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $this->saveContent($user, $panel['id'], B::minimal()); // version is now 2
-        $content = B::with(B::sample(), ['rails.0.widthModules' => 24.0]);
+        $content = B::with(B::sample(), ['railWidthModules' => 24.0]);
 
         $response = $this->panelApi('PUT', '/panels/' . $panel['id'] . '/content', $user, ['version' => 2.0, 'content' => $content]);
 
         self::assertSame(200, $response->getStatusCode(), $response->getContent(false));
         $data = $this->panelBody($response);
         self::assertSame(3, $data['version']);
-        self::assertSame(24, $data['content']['rails'][0]['widthModules']);
+        self::assertSame(24, $data['content']['railWidthModules']);
         self::assertSame(3, $this->panelRow($panel['id'])?->version);
-        self::assertSame(24, $this->sqlInt('SELECT width_modules FROM din_rail WHERE panel_id = ?', [$panel['id']]));
+        self::assertSame(24, $this->sqlInt('SELECT rail_width_modules FROM panel WHERE id = ?', [$panel['id']]));
     }
 
     /** @return list<string> */
@@ -213,10 +254,10 @@ final class ContentValidationTest extends PanelApiTestCase
     /** @return iterable<string, array{array<string, mixed>}> */
     public static function malformedEnvelopes(): iterable
     {
-        yield 'version missing' => [['content' => ['inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
-        yield 'version is a string' => [['version' => '1', 'content' => ['inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
-        yield 'version is a float' => [['version' => 1.5, 'content' => ['inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
-        yield 'version is 2.5' => [['version' => 2.5, 'content' => ['inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
+        yield 'version missing' => [['content' => ['railWidthModules' => 24, 'inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
+        yield 'version is a string' => [['version' => '1', 'content' => ['railWidthModules' => 24, 'inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
+        yield 'version is a float' => [['version' => 1.5, 'content' => ['railWidthModules' => 24, 'inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
+        yield 'version is 2.5' => [['version' => 2.5, 'content' => ['railWidthModules' => 24, 'inputCables' => [], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []]]];
         yield 'content missing' => [['version' => 1]];
         yield 'content is a string' => [['version' => 1, 'content' => 'x']];
         yield 'content is null' => [['version' => 1, 'content' => null]];
@@ -320,7 +361,7 @@ final class ContentValidationTest extends PanelApiTestCase
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
 
-        $response = $this->putContent($user, $panel['id'], B::with(B::sample(), ['rails.0.widthModules' => 0]));
+        $response = $this->putContent($user, $panel['id'], B::with(B::sample(), ['railWidthModules' => 0]));
 
         self::assertSame(422, $response->getStatusCode());
         self::assertSame('The request is invalid; see violations.', $this->json($response)['detail']);

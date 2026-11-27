@@ -14,13 +14,16 @@ use ApiPlatform\Metadata\ApiProperty;
 final readonly class PanelContent
 {
     /**
+     * @param int                  $railWidthModules width of every rail, 1 to 60
      * @param list<InputCableDto>  $inputCables
      * @param list<OutputCableDto> $outputCables
-     * @param list<TerminalBlockDto> $terminalRow blocks of the terminal row (between the input cables and the first rail), at most 60
+     * @param list<TerminalBlockDto> $terminalRow blocks of the terminal row (beside the input cables, offsets relative to the row start), at most 60
      * @param list<RailDto>        $rails
      * @param list<WireDto>        $wires
      */
     public function __construct(
+        #[ApiProperty(required: true)]
+        public int $railWidthModules,
         #[ApiProperty(required: true)]
         public array $inputCables,
         #[ApiProperty(required: true)]

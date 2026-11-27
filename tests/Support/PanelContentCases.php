@@ -39,7 +39,7 @@ final class PanelContentCases
         }), 'content.outputCables', null];
         yield '9 rails' => [self::mutated(static function (Doc $c): void {
             for ($i = 0; $i < 8; ++$i) {
-                $c->append('rails', B::rail(3000 + $i, 10));
+                $c->append('rails', B::rail(3000 + $i));
             }
         }), 'content.rails', null];
         yield '5001 wires' => [self::mutated(static function (Doc $c): void {
@@ -73,6 +73,22 @@ final class PanelContentCases
         yield 'output description 256 code points' => [self::mutated(static function (Doc $c): void {
             $c->set('outputCables.0.description', str_repeat('щ', 256));
         }), 'content.outputCables[0].description', B::uuid(20)];
+
+        yield 'input cable label 17 characters' => [self::mutated(static function (Doc $c): void {
+            $c->set('inputCables.0.label', str_repeat('x', 17));
+        }), 'content.inputCables[0].label', B::uuid(10)];
+        yield 'input cable label 17 code points (2-byte)' => [self::mutated(static function (Doc $c): void {
+            $c->set('inputCables.0.label', str_repeat('щ', 17));
+        }), 'content.inputCables[0].label', B::uuid(10)];
+        yield 'input cable label 17 code points (4-byte)' => [self::mutated(static function (Doc $c): void {
+            $c->set('inputCables.0.label', str_repeat('😀', 17));
+        }), 'content.inputCables[0].label', B::uuid(10)];
+        yield 'output cable label 17 characters' => [self::mutated(static function (Doc $c): void {
+            $c->set('outputCables.0.label', str_repeat('x', 17));
+        }), 'content.outputCables[0].label', B::uuid(20)];
+        yield 'output cable label 17 code points (2-byte)' => [self::mutated(static function (Doc $c): void {
+            $c->set('outputCables.0.label', str_repeat('щ', 17));
+        }), 'content.outputCables[0].label', B::uuid(20)];
 
         // --- numbers and scale (R5)
         foreach ([
@@ -132,11 +148,14 @@ final class PanelContentCases
 
         // --- rails, rail width, placement
         yield 'rail width 0' => [self::mutated(static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 0);
-        }), 'content.rails[0].widthModules', B::uuid(30)];
+            $c->set('railWidthModules', 0);
+        }), 'content.railWidthModules', null];
         yield 'rail width 61' => [self::mutated(static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 61);
-        }), 'content.rails[0].widthModules', B::uuid(30)];
+            $c->set('railWidthModules', 61);
+        }), 'content.railWidthModules', null];
+        yield 'rail width negative' => [self::mutated(static function (Doc $c): void {
+            $c->set('railWidthModules', -24);
+        }), 'content.railWidthModules', null];
         yield 'element overlaps element' => [self::mutated(static function (Doc $c): void {
             $c->append('rails.0.elements', B::element(33, 1, 1));
         }), 'content.rails[0].elements[1].offsetModules', B::uuid(33)];
@@ -159,8 +178,13 @@ final class PanelContentCases
             $c->set('rails.0.terminalBlocks.0.offsetModules', 24);
         }), 'content.rails[0].terminalBlocks[0].offsetModules', B::uuid(32)];
         yield 'block does not fit the shrunk rail' => [self::mutated(static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 4);
+            $c->set('railWidthModules', 4);
         }), 'content.rails[0].terminalBlocks[0].offsetModules', B::uuid(32)];
+        yield 'element does not fit the shrunk rail (offset + width = width + 1)' => [self::mutated(static function (Doc $c): void {
+            $c->set('railWidthModules', 6);
+            $c->append('rails.0.elements', B::element(33, 5, 2));
+        }), 'content.rails[0].elements[1].offsetModules', B::uuid(33)];
+
         yield 'element negative offset' => [self::mutated(static function (Doc $c): void {
             $c->set('rails.0.elements.0.offsetModules', -1);
         }), 'content.rails[0].elements[0].offsetModules', B::uuid(31)];
@@ -270,6 +294,38 @@ final class PanelContentCases
         yield 'row block does not fit the row' => [self::mutated(static function (Doc $c): void {
             $c->append('terminalRow', B::rowBlock(50, 59, 4));
         }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        // the sample has 3 input-cable wires: the row starts at module 3, the capacity is 24 - 3 = 21
+        yield 'row block one module past the capacity' => [self::mutated(static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 20, 4));
+        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        yield 'row block fits the rail width but not the row (rail width minus the input cables)' => [self::mutated(static function (Doc $c): void {
+            $c->set('railWidthModules', 24);
+            $c->append('terminalRow', B::rowBlock(50, 22, 2));
+        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        yield 'more input-cable wires shrink the row capacity' => [self::mutated(static function (Doc $c): void {
+            // 4 wires: 100 + 400 = 500, + gap 100 = 600 -> start module 4, capacity 20; the block ends at 21
+            $c->set('inputCables.0.wires', array_map(static fn(int $i): array => ['id' => B::uuid($i), 'colour' => 'brown'], [11, 12, 13, 14]));
+            $c->append('terminalRow', B::rowBlock(50, 19, 4));
+        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        yield 'a second input cable shrinks the row capacity' => [self::mutated(static function (Doc $c): void {
+            // box widths 400 + 300 + gap 100 = 800, + gap 100 = 900 -> start module 6, capacity 18; the block ends at 19
+            $c->append('inputCables', B::inputCable(15, [B::uuid(16), B::uuid(17)]));
+            $c->append('terminalRow', B::rowBlock(50, 17, 4));
+        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        yield 'no row capacity left (rail width equals the row start)' => [self::mutated(static function (Doc $c): void {
+            $c->set('railWidthModules', 3);
+            $c->set('rails.0.elements', []);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12))]);
+            $c->append('terminalRow', B::rowBlock(50, 0, 1));
+        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        yield 'negative row capacity (rail narrower than the row start)' => [self::mutated(static function (Doc $c): void {
+            $c->set('railWidthModules', 2);
+            $c->set('rails.0.elements', []);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12))]);
+            $c->append('terminalRow', B::rowBlock(50, 0, 1));
+        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
         yield 'row blocks overlap' => [self::mutated(static function (Doc $c): void {
             $c->append('terminalRow', B::rowBlock(50, 0, 4));
             $c->append('terminalRow', B::rowBlock(51, 1, 2));
@@ -378,6 +434,164 @@ final class PanelContentCases
             $c->append('wires', B::wire(51, B::cableWireEnd(11), B::terminalEnd(50, 4, 'top')));
         }), 'content.wires[3].end.terminalIndex', B::uuid(51)];
 
+        // --- busbars (stage 5)
+        yield 'busbar count 1' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 1)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar count 0' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 0)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar count 61' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 61)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield '31 busbars on a rail' => [self::mutated(static function (Doc $c): void {
+            $devices = [];
+            $busbars = [];
+            for ($i = 0; $i < 60; ++$i) {
+                $devices[] = B::element(7000 + $i, $i, 1);
+            }
+            for ($i = 0; $i < 30; ++$i) {
+                $busbars[] = B::busbar(8000 + $i, 7000 + 2 * $i, 2);
+            }
+            $busbars[] = B::busbar(8030, 7000, 2);
+            $c->set('railWidthModules', 60);
+            $c->set('rails.0.elements', $devices);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('rails.0.busbars', $busbars);
+            $c->set('wires', []);
+        }), 'content.rails[0].busbars', null];
+        yield 'busbar anchor unknown' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 999, 2)]);
+        }), 'content.rails[0].busbars[0].firstElementId', B::uuid(60)];
+        yield 'busbar anchor is a terminal block' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 32, 2)]);
+        }), 'content.rails[0].busbars[0].firstElementId', B::uuid(60)];
+        yield 'busbar anchor on another rail' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->append('rails', B::rail(70, [B::element(71, 0, 1), B::element(72, 1, 1)]));
+            $c->set('rails.0.busbars', [B::busbar(60, 71, 2)]);
+        }), 'content.rails[0].busbars[0].firstElementId', B::uuid(60)];
+        yield 'busbar anchor is an ATS' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->append('rails.0.elements', B::ats(37, 13, 2));
+            $c->set('rails.0.busbars', [B::busbar(60, 37, 2)]);
+        }), 'content.rails[0].busbars[0].firstElementId', B::uuid(60)];
+        yield 'busbar runs past the last item of the rail' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', [B::wire(40, B::cableWireEnd(11), B::poleEnd(33, 0, 'input'))]);
+            $c->set('rails.0.busbars', [B::busbar(60, 36, 2)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar count beyond the devices from the anchor' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 5)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar covers an ATS' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.terminalBlocks.0.offsetModules', 8);
+            $c->append('rails.0.elements', B::ats(37, 4, 2));
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 5)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar covers a terminal block' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 5)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar over devices with a free module between them' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.elements.3.offsetModules', 4);
+            $c->set('rails.0.terminalBlocks.0.offsetModules', 6);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 4)]);
+        }), 'content.rails[0].busbars[0].count', B::uuid(60)];
+        yield 'busbar over devices with mixed sidesSwapped' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.elements.1.sidesSwapped', true);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 2)]);
+        }), 'content.rails[0].busbars[0]', B::uuid(60)];
+        yield 'two busbars cover the same device (partial overlap)' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 2), B::busbar(61, 34, 2)]);
+        }), 'content.rails[0].busbars[1].firstElementId', B::uuid(61)];
+        yield 'two busbars with the same anchor' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 2), B::busbar(61, 33, 2)]);
+        }), 'content.rails[0].busbars[1].firstElementId', B::uuid(61)];
+        yield 'busbar id equals an element id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(33, 35, 2)]);
+        }), 'content.rails[0].busbars[0].id', B::uuid(33)];
+        yield 'duplicate busbar id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 2), B::busbar(60, 35, 2)]);
+        }), 'content.rails[0].busbars[1].id', B::uuid(60)];
+        yield 'busbar id is not a uuid' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $busbar = B::busbar(60, 33, 2);
+            $busbar['id'] = 'not-a-uuid';
+            $c->set('rails.0.busbars', [$busbar]);
+        }), 'content.rails[0].busbars[0].id', null];
+        yield 'busbar anchor id is not a uuid' => [self::mutated(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $busbar = B::busbar(60, 33, 2);
+            $busbar['firstElementId'] = 'not-a-uuid';
+            $c->set('rails.0.busbars', [$busbar]);
+        }), 'content.rails[0].busbars[0].firstElementId', B::uuid(60)];
+
+        // --- busbar endpoints (stage 5)
+        yield 'busbar endpoint with an unknown busbar id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::busbarEnd(999, 0));
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'busbar endpoint with an element id instead of the busbar id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::busbarEnd(33, 0));
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'L busbar feed index 1' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::busbarEnd(60, 1));
+        }), 'content.wires[0].end.feedIndex', B::uuid(40)];
+        yield 'LN busbar feed index 2' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c, 'LN');
+            $c->set('wires.0.end', B::busbarEnd(60, 2));
+        }), 'content.wires[0].end.feedIndex', B::uuid(40)];
+        yield 'busbar feed index negative' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::busbarEnd(60, -1));
+        }), 'content.wires[0].end.feedIndex', B::uuid(40)];
+        yield 'busbar endpoint without a feed index' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', ['kind' => 'busbar', 'busbarId' => B::uuid(60)]);
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'busbar endpoint without a busbar id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', ['kind' => 'busbar', 'feedIndex' => 0]);
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'busbar endpoint with a stray element id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::busbarEnd(60, 0) + ['elementId' => B::uuid(33)]);
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'busbar endpoint with a stray contact side' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::busbarEnd(60, 0) + ['contactSide' => 'top']);
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'pole endpoint with a stray busbar id' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::poleEnd(33, 0, 'input') + ['busbarId' => B::uuid(60)]);
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'cable wire endpoint with a stray feed index' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.end', B::cableWireEnd(12) + ['feedIndex' => 0]);
+        }), 'content.wires[0].end', B::uuid(40)];
+        yield 'self-loop on a busbar feed' => [self::mutated(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->set('wires.0.start', B::busbarEnd(60, 0));
+            $c->set('wires.0.end', B::busbarEnd(60, 0));
+        }), 'content.wires[0].end', B::uuid(40)];
+
         // --- ids (UUID format, nil, duplicates)
         foreach ([
             'input cable id' => ['inputCables.0.id', 'content.inputCables[0].id'],
@@ -394,7 +608,7 @@ final class PanelContentCases
             }
         }
         yield 'duplicate rail id' => [self::mutated(static function (Doc $c): void {
-            $c->append('rails', B::rail(30, 10));
+            $c->append('rails', B::rail(30));
         }), 'content.rails[1].id', B::uuid(30)];
         yield 'element id equals a cable wire id' => [self::mutated(static function (Doc $c): void {
             $c->append('rails.0.elements', B::element(11, 10, 1));
@@ -438,9 +652,9 @@ final class PanelContentCases
             $c->set('outputCables.0.wires', array_map(static fn(int $i): array => ['id' => B::uuid($i), 'colour' => 'black'], [21, 22, 23, 24]));
         });
         yield '8 rails of 60 modules' => self::mutatedCase(static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 60);
+            $c->set('railWidthModules', 60);
             for ($i = 1; $i < 8; ++$i) {
-                $c->append('rails', B::rail(3000 + $i, 60, [B::element(4000 + $i, 0, 60, 1)]));
+                $c->append('rails', B::rail(3000 + $i, [B::element(4000 + $i, 0, 60, 1)]));
             }
         });
         yield '4 poles on 1 module, 2 terminals on 1 module' => self::mutatedCase(static function (Doc $c): void {
@@ -452,15 +666,34 @@ final class PanelContentCases
             $c->set('wires.2.start', B::terminalEnd(32, 0));
         });
         yield 'touching items filling the rail' => self::mutatedCase(static function (Doc $c): void {
-            $c->set('rails.0.widthModules', 6);
+            $c->set('railWidthModules', 6);
             $c->set('rails.0.terminalBlocks.0.offsetModules', 2);
             $c->append('rails.0.elements', B::element(33, 3, 3, 1));
         });
-        yield 'terminal row with 60 one-terminal blocks' => self::mutatedCase(static function (Doc $c): void {
-            $c->set('terminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 59)));
+        yield 'terminal row of one-terminal blocks filling the capacity (60 - 3 = 57)' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('railWidthModules', 60);
+            $c->set('terminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 56)));
         });
         yield 'row block of 60 terminals filling the row' => self::mutatedCase(static function (Doc $c): void {
+            // capacity 33 - 3 = 30 modules = 60 terminals
+            $c->set('railWidthModules', 33);
             $c->set('terminalRow', [B::rowBlock(50, 0, 60, 'red', 'Bus')]);
+        });
+        yield 'row block ending exactly at the capacity' => self::mutatedCase(static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 19, 4));
+        });
+        yield 'row block in a minimal input row (1 wire: start module 2)' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('inputCables.0.wires', [['id' => B::uuid(11), 'colour' => 'brown']]);
+            $c->set('wires', []);
+            $c->set('railWidthModules', 12);
+            $c->set('rails.0.terminalBlocks.0.offsetModules', 4);
+            $c->set('terminalRow', [B::rowBlock(50, 0, 20)]);
+        });
+        yield 'row capacity of exactly one module' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('railWidthModules', 4);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', []);
+            $c->set('terminalRow', [B::rowBlock(50, 0, 1)]);
         });
         yield 'row blocks touching' => self::mutatedCase(static function (Doc $c): void {
             $c->set('terminalRow', [B::rowBlock(50, 0, 4), B::rowBlock(51, 2, 3)]);
@@ -500,6 +733,74 @@ final class PanelContentCases
             $c->append('rails.0.elements', B::element(33, 10, 1, 1, true, 'Q2', 'B', 'rcd'));
             $c->append('rails.0.elements', B::element(34, 12, 1, 1, false, 'Q3', 'C', 'voltageRelay'));
         });
+        yield 'rail width 1 without items' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('railWidthModules', 1);
+            $c->set('rails.0.elements', []);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(21))]);
+        });
+        yield 'rail width 60 with a full-width element' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('railWidthModules', 60);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', []);
+            $c->set('rails.0.elements', [B::element(31, 0, 60, 4)]);
+        });
+        yield 'cable labels of 16 code points and empty' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('inputCables.0.label', str_repeat('😀', 16));
+            $c->set('outputCables.0.label', str_repeat('щ', 16));
+            $c->append('inputCables', B::inputCable(15, [B::uuid(16)], label: ''));
+            $c->append('outputCables', B::outputCable(25, [B::uuid(26)], label: ''));
+        });
+        yield 'L busbar over two devices' => self::mutatedCase(static function (Doc $c): void {
+            self::withBusbar($c);
+        });
+        yield 'LN busbar fed on both feeds' => self::mutatedCase(static function (Doc $c): void {
+            self::withBusbar($c, 'LN');
+            $c->set('wires.0.end', B::busbarEnd(60, 1));
+        });
+        yield 'busbar over devices and adjacent items after the covered set' => self::mutatedCase(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 3)]);
+        });
+        yield 'two disjoint busbars on one rail' => self::mutatedCase(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 2), B::busbar(61, 35, 2, 'LN')]);
+        });
+        yield 'busbar over devices that are all sidesSwapped' => self::mutatedCase(static function (Doc $c): void {
+            self::withBusbarDevices($c);
+            $c->set('rails.0.elements.0.sidesSwapped', true);
+            $c->set('rails.0.elements.1.sidesSwapped', true);
+            $c->set('rails.0.busbars', [B::busbar(60, 33, 2)]);
+        });
+        yield 'busbar of 60 devices' => self::mutatedCase(static function (Doc $c): void {
+            $devices = [];
+            for ($i = 0; $i < 60; ++$i) {
+                $devices[] = B::element(7000 + $i, $i, 1);
+            }
+            $c->set('railWidthModules', 60);
+            $c->set('rails.0.elements', $devices);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('rails.0.busbars', [B::busbar(60, 7000, 60, 'LN')]);
+            $c->set('wires', []);
+        });
+        yield '30 busbars on a rail' => self::mutatedCase(static function (Doc $c): void {
+            $devices = [];
+            $busbars = [];
+            for ($i = 0; $i < 30; ++$i) {
+                $devices[] = B::element(7000 + 2 * $i, 2 * $i, 1);
+                $devices[] = B::element(7001 + 2 * $i, 2 * $i + 1, 1);
+                $busbars[] = B::busbar(8000 + $i, 7000 + 2 * $i, 2);
+            }
+            $c->set('railWidthModules', 60);
+            $c->set('rails.0.elements', $devices);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('rails.0.busbars', $busbars);
+            $c->set('wires', []);
+        });
+        yield 'wire from a busbar feed to a covered input' => self::mutatedCase(static function (Doc $c): void {
+            self::withBusbar($c);
+            $c->append('wires', B::wire(44, B::busbarEnd(60, 0), B::poleEnd(34, 0, 'input')));
+        });
         yield 'text limits' => self::mutatedCase(static function (Doc $c): void {
             $c->set('rails.0.elements.0.label', str_repeat('щ', 16));
             $c->set('rails.0.elements.0.marking', str_repeat('😀', 6));
@@ -527,6 +828,35 @@ final class PanelContentCases
                 $c->append('wires', $wire);
             }
         });
+    }
+
+    /**
+     * Replaces the rail 30 elements by the devices 33, 34, 35 and 36 (offsets 0 to 3, 1 module and 2
+     * poles each); the block 32 stays at offset 4. No busbars; the wires 41-42 (block) stay valid, wire 40
+     * (cable wire 11 -> element 31) is repointed to the device 33.
+     */
+    private static function withBusbarDevices(Doc $c): void
+    {
+        $c->set('rails.0.elements', [
+            B::element(33, 0, 1, 2),
+            B::element(34, 1, 1, 2),
+            B::element(35, 2, 1, 2),
+            B::element(36, 3, 1, 2),
+        ]);
+        $c->set('rails.0.terminalBlocks.0.offsetModules', 4);
+        $c->set('wires.0.end', B::poleEnd(33, 0, 'input'));
+        $c->set('wires.1.start', B::poleEnd(33, 0, 'output'));
+    }
+
+    /**
+     * Devices 33 and 34 under busbar 60 (anchor 33, count 2, the given type), devices 35 and 36 uncovered;
+     * the wire 40 goes from cable wire 11 to the feed 0 of the busbar.
+     */
+    private static function withBusbar(Doc $c, string $type = 'L'): void
+    {
+        self::withBusbarDevices($c);
+        $c->set('rails.0.busbars', [B::busbar(60, 33, 2, $type)]);
+        $c->set('wires.0.end', B::busbarEnd(60, 0));
     }
 
     /**

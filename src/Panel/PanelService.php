@@ -48,7 +48,7 @@ final readonly class PanelService
             $panel = new Panel($owner, $name, $this->now());
             $this->em->persist($panel);
 
-            $cable = Cable::input(Uuid::v7(), $panel, 0, 230.0, 50.0, 4.0);
+            $cable = Cable::input(Uuid::v7(), $panel, 0, '', 230.0, 50.0, 4.0);
             $this->em->persist($cable);
             foreach ([WireColour::Brown, WireColour::Blue, WireColour::GreenYellow] as $position => $colour) {
                 $this->em->persist(new CableWire(Uuid::v7(), $cable, $position, $colour));
@@ -102,10 +102,10 @@ final readonly class PanelService
             foreach ($tree->all() as $row) {
                 $this->em->persist($row);
             }
-            $panel->contentReplaced($this->now());
+            $panel->contentReplaced($this->now(), $content->railWidthModules);
             $this->em->flush();
 
-            return new PanelDetails($panel, $this->mapper->toContent($tree));
+            return new PanelDetails($panel, $this->mapper->toContent($tree, $panel->railWidthModules));
         }, true, $lockedVersion);
     }
 
@@ -153,7 +153,7 @@ final readonly class PanelService
 
     private function details(Panel $panel): PanelDetails
     {
-        return new PanelDetails($panel, $this->mapper->toContent($this->panels->loadTree($panel)));
+        return new PanelDetails($panel, $this->mapper->toContent($this->panels->loadTree($panel), $panel->railWidthModules));
     }
 
     /**
