@@ -30,3 +30,8 @@ values.yaml
 ###> lexik/jwt-authentication-bundle ###
 /config/jwt/
 ###< lexik/jwt-authentication-bundle ###
+
+# env files
+.env
+.env.dev
+.env.test
