@@ -71,7 +71,7 @@ final readonly class ShortCircuitChecker
                 $union("t:{$block->id}:0", "t:{$block->id}:$index");
             }
         };
-        foreach ($content->terminalRow as $block) {
+        foreach ([...$content->terminalRow, ...$content->bottomTerminalRow] as $block) {
             $joinBar($block);
         }
         foreach ($content->rails as $rail) {

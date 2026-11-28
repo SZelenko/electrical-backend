@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Tests\Functional\Panel;
 
+use App\Tests\Support\Doc;
 use App\Tests\Support\PanelShapes;
 use App\Tests\Support\PanelContentBuilder as B;
 use App\Tests\Support\SharedFixtures;
@@ -65,15 +66,139 @@ final class SavePanelContentTest extends PanelApiTestCase
         self::assertSame(1, $this->sqlInt('SELECT COUNT(*) FROM cable_wire'));
     }
 
+    /** @return iterable<string, array{string, string}> */
+    public static function cableSideCombinations(): iterable
+    {
+        foreach (['top', 'bottom', 'left', 'right'] as $input) {
+            foreach (['top', 'bottom', 'left', 'right'] as $output) {
+                yield "input $input, output $output" => [$input, $output];
+            }
+        }
+    }
+
+    #[DataProvider('cableSideCombinations')]
+    public function testCableSidesRoundTripSuccess(string $input, string $output): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+
+        $put = $this->saveContent($user, $panel['id'], B::withSides(B::sample(), $input, $output));
+        $get = $this->panelBody($this->panelApi('GET', '/panels/' . $panel['id'], $user));
+
+        foreach ([$put, $get] as $body) {
+            self::assertSame([$input, $output], [$body['content']['inputCableSide'], $body['content']['outputCableSide']]);
+            self::assertSame([], $body['shortCircuits']);
+        }
+        self::assertSame(
+            [$input, $output],
+            array_values($this->connection()->fetchAssociative('SELECT input_cable_side, output_cable_side FROM panel WHERE id = ?', [$panel['id']]) ?: []),
+        );
+        self::assertSame(2, $put['version']);
+    }
+
+    public function testChangingOnlyTheCableSidesBumpsTheVersionAndKeepsTheRestSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $first = $this->saveContent($user, $panel['id'], B::sample());
+
+        $second = $this->saveContent($user, $panel['id'], B::withSides(B::sample(), 'left', 'right'));
+
+        self::assertSame(3, $second['version']);
+        $expected = $first['content'];
+        $expected['inputCableSide'] = 'left';
+        $expected['outputCableSide'] = 'right';
+        self::assertEquals($expected, $second['content']);
+    }
+
+    /** @return iterable<string, array{string, mixed}> */
+    public static function invalidSides(): iterable
+    {
+        foreach (['inputCableSide', 'outputCableSide'] as $field) {
+            yield "$field unknown" => [$field, 'center'];
+            yield "$field upper case" => [$field, 'TOP'];
+            yield "$field empty" => [$field, ''];
+            yield "$field null" => [$field, null];
+            yield "$field number" => [$field, 0];
+            yield "$field boolean" => [$field, true];
+            yield "$field object" => [$field, ['side' => 'top']];
+        }
+    }
+
+    #[DataProvider('invalidSides')]
+    public function testInvalidCableSideError(string $field, mixed $value): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $doc = new Doc(B::sample());
+        $doc->set($field, $value);
+
+        $response = $this->putContent($user, $panel['id'], $doc->content());
+
+        self::assertSame(422, $response->getStatusCode(), $response->getContent(false));
+        self::assertContains('content.' . $field, $this->violationPaths($response));
+        self::assertSame(1, $this->panelRow($panel['id'])?->version);
+        self::assertSame(
+            ['top', 'bottom'],
+            array_values($this->connection()->fetchAssociative('SELECT input_cable_side, output_cable_side FROM panel WHERE id = ?', [$panel['id']]) ?: []),
+            'The stored sides are untouched.',
+        );
+    }
+
+    #[DataProvider('missingSideFields')]
+    public function testMissingCableSideError(string $field): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $doc = new Doc(B::sample());
+        $doc->unset($field);
+
+        $response = $this->putContent($user, $panel['id'], $doc->content());
+
+        self::assertSame(422, $response->getStatusCode(), $response->getContent(false));
+        self::assertContains('content.' . $field, $this->violationPaths($response));
+        self::assertSame(1, $this->panelRow($panel['id'])?->version);
+    }
+
+    /** @return iterable<string, array{string}> */
+    public static function missingSideFields(): iterable
+    {
+        yield 'inputCableSide' => ['inputCableSide'];
+        yield 'outputCableSide' => ['outputCableSide'];
+        yield 'bottomTerminalRow' => ['bottomTerminalRow'];
+    }
+
+    public function testOldClientPayloadWithoutTheNewFieldsDoesNotWipeTheBottomRowError(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $this->saveContent($user, $panel['id'], B::withBottomRow(B::sample(), [B::rowBlock(50, 0, 2)]));
+
+        $old = new Doc(B::sample());
+        foreach (['inputCableSide', 'outputCableSide', 'bottomTerminalRow'] as $field) {
+            $old->unset($field);
+        }
+        $response = $this->putContent($user, $panel['id'], $old->content());
+
+        self::assertSame(422, $response->getStatusCode());
+        self::assertSame(
+            [B::uuid(50)],
+            array_column($this->panelBody($this->panelApi('GET', '/panels/' . $panel['id'], $user))['content']['bottomTerminalRow'], 'id'),
+        );
+    }
+
     public function testSaveContentReportsShortCircuitAsWarningSuccess(): void
     {
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
         $content = [
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [],
             'wires' => [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12))],
         ];

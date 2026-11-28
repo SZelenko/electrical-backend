@@ -138,12 +138,15 @@ final class ShortCircuitCheckerTest extends TestCase
         // Two separate short circuits: (11,12) via wire 40 and (21,22) via wire 41, written in reverse order.
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [
                 B::inputCable(20, [B::uuid(22), B::uuid(21)]),
                 B::inputCable(10, [B::uuid(12), B::uuid(11)]),
             ],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [],
             'wires' => [
                 B::wire(41, B::cableWireEnd(22), B::cableWireEnd(21)),
@@ -165,9 +168,12 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [], [B::block(32, 0, 1, 4)])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::terminalEnd(32, 0)),
@@ -186,9 +192,12 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13), B::uuid(14)])],
             'outputCables' => [],
             'terminalRow' => [B::rowBlock(50, 0, 2)],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [], [B::block(32, 0, 1, 2)])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::terminalEnd(50, 0, 'top')),
@@ -221,9 +230,12 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [B::element(31, 0, 1, 2), B::element(32, 1, 1, 2)], [], 0, [B::busbar(60, 31, 2, 'LN')])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::busbarEnd(60, 0)),
@@ -249,9 +261,12 @@ final class ShortCircuitCheckerTest extends TestCase
         // The checker works on valid content only; an ATS in the way (invalid) only the valid prefix of the walk (the anchor) is joined.
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [B::element(31, 0), B::ats(32, 1, 2), B::element(33, 3)], [], 0, [B::busbar(60, 31, 3)])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::busbarEnd(60, 0)),
@@ -266,9 +281,12 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         $endpoint = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10)],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [],
             'wires' => [B::wire(40, B::cableWireEnd(11), B::busbarEnd(60, 1))],
         ])->wires[0]->end;
@@ -289,9 +307,12 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13), B::uuid(14)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [],
             'wires' => [],
         ]);
@@ -303,9 +324,12 @@ final class ShortCircuitCheckerTest extends TestCase
     {
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12), B::uuid(13)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12)),
@@ -325,9 +349,12 @@ final class ShortCircuitCheckerTest extends TestCase
         $element = B::element(31, 0, 1, 1, false);
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [$element])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
@@ -340,9 +367,12 @@ final class ShortCircuitCheckerTest extends TestCase
         $element['on'] = true;
         $content = B::toContent([
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [$element])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),

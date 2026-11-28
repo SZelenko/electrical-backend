@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Tests\Support;
 
 use App\Entity\Panel\AtsState;
+use App\Entity\Panel\CableSide;
 use App\Entity\Panel\BusbarType;
 use App\Entity\Panel\ContactSide;
 use App\Entity\Panel\DeviceStyle;
@@ -219,9 +220,12 @@ final class PanelContentBuilder
     {
         return [
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [self::inputCable(10, [self::uuid(11), self::uuid(12), self::uuid(13)])],
             'outputCables' => [self::outputCable(20)],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [
                 self::rail(30, [self::element(31, 0, 2, 2)], [self::block(32, 4, 1, 4)], 12.5),
             ],
@@ -262,7 +266,47 @@ final class PanelContentBuilder
      */
     public static function minimal(): array
     {
-        return ['railWidthModules' => 24, 'inputCables' => [self::inputCable(10)], 'outputCables' => [], 'terminalRow' => [], 'rails' => [], 'wires' => []];
+        return [
+            'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
+            'inputCables' => [self::inputCable(10)],
+            'outputCables' => [],
+            'terminalRow' => [],
+            'bottomTerminalRow' => [],
+            'rails' => [],
+            'wires' => [],
+        ];
+    }
+
+    /**
+     * The content with both cable sides set (`top`/`bottom`/`left`/`right`).
+     *
+     * @param Content $content
+     *
+     * @return Content
+     */
+    public static function withSides(array $content, string $input, string $output): array
+    {
+        $content['inputCableSide'] = $input;
+        $content['outputCableSide'] = $output;
+
+        return $content;
+    }
+
+    /**
+     * The content with the bottom terminal row replaced by the given blocks.
+     *
+     * @param Content     $content
+     * @param list<Block> $blocks
+     *
+     * @return Content
+     */
+    public static function withBottomRow(array $content, array $blocks): array
+    {
+        $content['bottomTerminalRow'] = $blocks;
+
+        return $content;
     }
 
     /** @param Content $data */
@@ -315,6 +359,10 @@ final class PanelContentBuilder
         foreach ($data['terminalRow'] as $b) {
             $row[] = self::blockDto($b);
         }
+        $bottomRow = [];
+        foreach ($data['bottomTerminalRow'] as $b) {
+            $bottomRow[] = self::blockDto($b);
+        }
         $wires = [];
         foreach ($data['wires'] as $w) {
             $bends = [];
@@ -331,7 +379,17 @@ final class PanelContentBuilder
             );
         }
 
-        return new PanelContent($data['railWidthModules'], $inputs, $outputs, $row, $rails, $wires);
+        return new PanelContent(
+            $data['railWidthModules'],
+            CableSide::from($data['inputCableSide']),
+            CableSide::from($data['outputCableSide']),
+            $inputs,
+            $outputs,
+            $row,
+            $bottomRow,
+            $rails,
+            $wires,
+        );
     }
 
     /**

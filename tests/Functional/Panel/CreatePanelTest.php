@@ -35,16 +35,19 @@ final class CreatePanelTest extends PanelApiTestCase
         self::assertEquals(230, $cable['voltage']);
         self::assertEquals(50, $cable['frequency']);
         self::assertEquals(4, $cable['crossSection']);
-        self::assertSame(['brown', 'blue', 'green-yellow'], array_column($cable['wires'], 'colour'));
+        self::assertSame(['brown', 'blue'], array_column($cable['wires'], 'colour'));
+        self::assertSame(['top', 'bottom'], [$content['inputCableSide'], $content['outputCableSide']]);
+        self::assertSame([], $content['terminalRow']);
+        self::assertSame([], $content['bottomTerminalRow']);
 
-        // Persisted: row, owner, one input cable with three wires.
+        // Persisted: row, owner, one input cable with two wires.
         $panel = $this->panelRow($data['id']);
         self::assertInstanceOf(Panel::class, $panel);
         self::assertSame($user->id->toRfc4122(), $panel->owner->id->toRfc4122());
         self::assertSame('main panel', $panel->nameKey);
         self::assertNull($panel->deletedAt);
         self::assertSame(1, $this->countRows('cable', $data['id']));
-        self::assertSame(3, $this->sqlInt('SELECT COUNT(*) FROM cable_wire w JOIN cable c ON c.id = w.cable_id WHERE c.panel_id = ?', [$data['id']]));
+        self::assertSame(2, $this->sqlInt('SELECT COUNT(*) FROM cable_wire w JOIN cable c ON c.id = w.cable_id WHERE c.panel_id = ?', [$data['id']]));
 
         // The same content comes back from GET.
         $get = $this->panelBody($this->panelApi('GET', '/panels/' . $data['id'], $user));

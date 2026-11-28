@@ -192,9 +192,12 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         $panel = $this->createPanel($user);
         $content = [
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [B::rowBlock(50, 0, 2)],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [B::ats(31, 0, 2, 'A')])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
@@ -226,9 +229,12 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         $panel = $this->createPanel($user);
         $content = [
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [B::outputCable(20, [B::uuid(21)])],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, [B::ats(31, 0, 2, 'off')])],
             'wires' => [
                 B::wire(40, B::cableWireEnd(11), B::poleEnd(31, 0, 'input')),
@@ -267,10 +273,39 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
             $c->set('terminalRow.1.offsetModules', 59);
             $c->set('terminalRow.1.terminalCount', 4);
             $c->set('terminalRow.1.widthModules', 2);
-        }, 'content.terminalRow[1].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(51)];
+        }, 'content.terminalRow[1].offsetModules', 'Does not fit within the top terminal row (rail width).', B::uuid(51)];
         yield 'row blocks overlap' => [static function (Doc $c): void {
             $c->set('terminalRow.1.offsetModules', 1);
-        }, 'content.terminalRow[1].offsetModules', 'Overlaps another block in the terminal row.', B::uuid(51)];
+        }, 'content.terminalRow[1].offsetModules', 'Overlaps another block in the top terminal row.', B::uuid(51)];
+        yield 'bottom row block does not fit the row' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(52, 23, 4)]);
+        }, 'content.bottomTerminalRow[0].offsetModules', 'Does not fit within the bottom terminal row (rail width).', B::uuid(52)];
+        yield 'bottom row blocks overlap' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(52, 0, 4), B::rowBlock(53, 1, 2)]);
+        }, 'content.bottomTerminalRow[1].offsetModules', 'Overlaps another block in the bottom terminal row.', B::uuid(53)];
+        yield 'bottom row block width does not match the contacts' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::block(52, 0, 3, 4)]);
+        }, 'content.bottomTerminalRow[0].widthModules', 'Must be 2 (half of the terminal count, rounded up).', B::uuid(52)];
+        yield 'bottom row block without contacts' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::block(52, 0, 1, 0)]);
+        }, 'content.bottomTerminalRow[0].terminalCount', 'Must be between 1 and 60.', B::uuid(52)];
+        yield 'bottom row block label too long' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(52, 0, 2, null, str_repeat('x', 17))]);
+        }, 'content.bottomTerminalRow[0].label', 'Must be at most 16 characters long.', B::uuid(52)];
+        yield 'bottom row block reuses a top row block id' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(50, 10, 2)]);
+        }, 'content.bottomTerminalRow[0].id', 'Duplicate id within the payload.', B::uuid(50)];
+        yield 'rail block reuses a bottom row block id (rows are claimed first)' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(32, 10, 2)]);
+        }, 'content.rails[0].terminalBlocks[0].id', 'Duplicate id within the payload.', B::uuid(32)];
+        yield 'contact side left on a bottom row block' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(52, 10, 2)]);
+            $c->append('wires', B::wire(45, B::cableWireEnd(12), B::terminalEnd(52, 0, 'left')));
+        }, 'content.wires[5].end.contactSide', 'Must be "top" or "bottom" for a terminal-row block.', B::uuid(45)];
+        yield 'contact side right on a bottom row block' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(52, 10, 2)]);
+            $c->append('wires', B::wire(45, B::cableWireEnd(12), B::terminalEnd(52, 0, 'right')));
+        }, 'content.wires[5].end.contactSide', 'Must be "top" or "bottom" for a terminal-row block.', B::uuid(45)];
         yield 'row block label too long' => [static function (Doc $c): void {
             $c->set('terminalRow.0.label', str_repeat('x', 17));
         }, 'content.terminalRow[0].label', 'Must be at most 16 characters long.', B::uuid(50)];
@@ -364,9 +399,116 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
 
         self::assertContains('content.terminalRow', array_column($violations, 'propertyPath'));
         self::assertContains(
-            'At most 60 terminal blocks are allowed in the terminal row.',
+            'At most 60 terminal blocks are allowed in the top terminal row.',
             array_column($violations, 'message'),
         );
+    }
+
+    public function testBottomRowBlockCapIs60Error(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $content = B::minimal();
+        $content['bottomTerminalRow'] = array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i % 60, 1), range(0, 60));
+
+        $violations = $this->violations($this->putContent($user, $panel['id'], $content));
+
+        self::assertContains('content.bottomTerminalRow', array_column($violations, 'propertyPath'));
+        self::assertContains('At most 60 terminal blocks are allowed in the bottom terminal row.', array_column($violations, 'message'));
+        self::assertSame(1, $this->panelRow($panel['id'])?->version);
+    }
+
+    public function testBothRowsMayHold60BlocksEachSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $content = B::with(B::minimal(), ['railWidthModules' => 60]);
+        $content['terminalRow'] = array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 59));
+        $content['bottomTerminalRow'] = array_map(static fn(int $i): array => B::rowBlock(6000 + $i, $i, 1), range(0, 59));
+
+        $body = $this->saveContent($user, $panel['id'], $content);
+
+        self::assertCount(60, $body['content']['terminalRow']);
+        self::assertCount(60, $body['content']['bottomTerminalRow']);
+        self::assertSame(60, $this->sqlInt("SELECT COUNT(*) FROM terminal_block WHERE panel_id = ? AND terminal_row = 'top'", [$panel['id']]));
+        self::assertSame(60, $this->sqlInt("SELECT COUNT(*) FROM terminal_block WHERE panel_id = ? AND terminal_row = 'bottom'", [$panel['id']]));
+    }
+
+    public function testBottomRowRoundTripSortedByOffsetSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $content = B::withBottomRow(self::rich(), [B::rowBlock(53, 12, 4, 'blue', 'N'), B::rowBlock(52, 0, 6, 'green-yellow', 'PE'), B::rowBlock(54, 8, 1)]);
+
+        $put = $this->saveContent($user, $panel['id'], $content);
+        $get = $this->panelBody($this->panelApi('GET', '/panels/' . $panel['id'], $user));
+
+        foreach ([$put, $get] as $body) {
+            self::assertSame([B::uuid(52), B::uuid(54), B::uuid(53)], array_column($body['content']['bottomTerminalRow'], 'id'));
+            self::assertSame(['green-yellow', 'PE', 3, 0], [
+                $body['content']['bottomTerminalRow'][0]['colour'],
+                $body['content']['bottomTerminalRow'][0]['label'],
+                $body['content']['bottomTerminalRow'][0]['widthModules'],
+                $body['content']['bottomTerminalRow'][0]['offsetModules'],
+            ]);
+            self::assertSame([B::uuid(50), B::uuid(51)], array_column($body['content']['terminalRow'], 'id'), 'The top row is not mixed with the bottom row.');
+        }
+        self::assertSame(2, $this->sqlInt("SELECT COUNT(*) FROM terminal_block WHERE panel_id = ? AND terminal_row = 'top'", [$panel['id']]));
+        self::assertSame(3, $this->sqlInt("SELECT COUNT(*) FROM terminal_block WHERE panel_id = ? AND terminal_row = 'bottom'", [$panel['id']]));
+        self::assertSame(1, $this->sqlInt('SELECT COUNT(*) FROM terminal_block WHERE panel_id = ? AND terminal_row IS NULL AND rail_id IS NOT NULL', [$panel['id']]));
+    }
+
+    public function testBlockMovedBetweenRowsKeepsItsWiresSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $content = self::rich();
+        $this->saveContent($user, $panel['id'], $content);
+
+        // The editor "moves" block 50 to the bottom row: same id, same wires.
+        $moved = $content;
+        $moved['bottomTerminalRow'] = [$content['terminalRow'][0]];
+        $moved['terminalRow'] = [$content['terminalRow'][1]];
+        $body = $this->saveContent($user, $panel['id'], $moved);
+
+        self::assertSame([B::uuid(50)], array_column($body['content']['bottomTerminalRow'], 'id'));
+        self::assertSame([B::uuid(51)], array_column($body['content']['terminalRow'], 'id'));
+        self::assertSame(['bottom'], $this->connection()->fetchFirstColumn('SELECT terminal_row FROM terminal_block WHERE id = ?', [B::uuid(50)]));
+        self::assertContains(B::uuid(40), array_column($body['content']['wires'], 'id'));
+        self::assertSame(B::uuid(50), array_column($body['content']['wires'], null, 'id')[B::uuid(40)]['end']['terminalBlockId'] ?? null);
+    }
+
+    public function testBottomRowBarShortCircuitIsAWarningSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $content = B::withBottomRow(B::with(B::minimal(), ['inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])]]), [B::rowBlock(50, 0, 2)]);
+        $content['wires'] = [
+            B::wire(40, B::cableWireEnd(11), B::terminalEnd(50, 0, 'bottom')),
+            B::wire(41, B::cableWireEnd(12), B::terminalEnd(50, 1, 'top')),
+        ];
+
+        $response = $this->putContent($user, $panel['id'], $content);
+
+        self::assertSame(200, $response->getStatusCode(), $response->getContent(false));
+        $data = $this->panelBody($response);
+        self::assertCount(1, $data['shortCircuits']);
+        self::assertEqualsCanonicalizing([B::uuid(11), B::uuid(12)], $data['shortCircuits'][0]['sources']);
+        self::assertEqualsCanonicalizing([B::uuid(40), B::uuid(41)], $data['shortCircuits'][0]['wireIds']);
+        self::assertCount(1, $this->panelBody($this->panelApi('GET', '/panels/' . $panel['id'], $user))['shortCircuits']);
+    }
+
+    public function testBlocksOfBothRowsAtTheSameOffsetAreNotJoinedSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $content = B::withBottomRow(B::with(B::minimal(), ['inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])], 'terminalRow' => [B::rowBlock(50, 0, 2)]]), [B::rowBlock(51, 0, 2)]);
+        $content['wires'] = [
+            B::wire(40, B::cableWireEnd(11), B::terminalEnd(50, 0, 'top')),
+            B::wire(41, B::cableWireEnd(12), B::terminalEnd(51, 0, 'bottom')),
+        ];
+
+        self::assertSame([], $this->saveContent($user, $panel['id'], $content)['shortCircuits']);
     }
 
     /** @return iterable<string, array{callable(Doc): void, string}> */
@@ -378,6 +520,49 @@ final class TerminalRowAndAtsTest extends PanelApiTestCase
         yield 'terminalRow is a string' => [static function (Doc $c): void {
             $c->set('terminalRow', 'x');
         }, 'content.terminalRow'];
+        yield 'bottomTerminalRow is missing (old client)' => [static function (Doc $c): void {
+            $c->unset('bottomTerminalRow');
+        }, 'content.bottomTerminalRow'];
+        yield 'bottomTerminalRow is null' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', null);
+        }, 'content.bottomTerminalRow'];
+        yield 'bottomTerminalRow is a string' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', 'x');
+        }, 'content.bottomTerminalRow'];
+        yield 'bottomTerminalRow block has an unknown colour' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(52, 0, 2, 'red')]);
+            $c->set('bottomTerminalRow.0.colour', 'purple');
+        }, 'content.bottomTerminalRow[0].colour'];
+        yield 'inputCableSide is missing (old client)' => [static function (Doc $c): void {
+            $c->unset('inputCableSide');
+        }, 'content.inputCableSide'];
+        yield 'outputCableSide is missing (old client)' => [static function (Doc $c): void {
+            $c->unset('outputCableSide');
+        }, 'content.outputCableSide'];
+        yield 'inputCableSide is null' => [static function (Doc $c): void {
+            $c->set('inputCableSide', null);
+        }, 'content.inputCableSide'];
+        yield 'outputCableSide is null' => [static function (Doc $c): void {
+            $c->set('outputCableSide', null);
+        }, 'content.outputCableSide'];
+        yield 'inputCableSide is unknown' => [static function (Doc $c): void {
+            $c->set('inputCableSide', 'middle');
+        }, 'content.inputCableSide'];
+        yield 'outputCableSide is unknown' => [static function (Doc $c): void {
+            $c->set('outputCableSide', 'diagonal');
+        }, 'content.outputCableSide'];
+        yield 'inputCableSide is wrongly cased' => [static function (Doc $c): void {
+            $c->set('inputCableSide', 'Top');
+        }, 'content.inputCableSide'];
+        yield 'outputCableSide is empty' => [static function (Doc $c): void {
+            $c->set('outputCableSide', '');
+        }, 'content.outputCableSide'];
+        yield 'inputCableSide is a number' => [static function (Doc $c): void {
+            $c->set('inputCableSide', 1);
+        }, 'content.inputCableSide'];
+        yield 'outputCableSide is a list' => [static function (Doc $c): void {
+            $c->set('outputCableSide', ['top']);
+        }, 'content.outputCableSide'];
         yield 'element kind is unknown' => [static function (Doc $c): void {
             $c->set('rails.0.elements.0.kind', 'fuse');
         }, 'content.rails[0].elements[0].kind'];

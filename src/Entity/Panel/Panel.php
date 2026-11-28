@@ -50,9 +50,15 @@ class Panel
     #[ORM\Column(options: ['default' => 1])]
     public private(set) int $version = 1;
 
-    /** Width of every DIN rail of the panel (and of the terminal row together with the input cables). */
+    /** Width of every DIN rail of the panel and of both terminal rows. */
     #[ORM\Column(type: Types::SMALLINT)]
     public private(set) int $railWidthModules = self::DEFAULT_RAIL_WIDTH_MODULES;
+
+    #[ORM\Column(length: 6, enumType: CableSide::class)]
+    public private(set) CableSide $inputCableSide = CableSide::Top;
+
+    #[ORM\Column(length: 6, enumType: CableSide::class)]
+    public private(set) CableSide $outputCableSide = CableSide::Bottom;
 
     #[ORM\Column(type: Types::DATETIMETZ_IMMUTABLE)]
     public private(set) \DateTimeImmutable $createdAt;
@@ -85,12 +91,18 @@ class Panel
         ++$this->version;
     }
 
-    public function contentReplaced(\DateTimeImmutable $now, int $railWidthModules): void
-    {
+    public function contentReplaced(
+        \DateTimeImmutable $now,
+        int $railWidthModules,
+        CableSide $inputCableSide,
+        CableSide $outputCableSide,
+    ): void {
         if ($railWidthModules < self::MIN_RAIL_WIDTH_MODULES || $railWidthModules > self::MAX_RAIL_WIDTH_MODULES) {
             throw new \InvalidArgumentException('The rail width must be between 1 and 60 modules.');
         }
         $this->railWidthModules = $railWidthModules;
+        $this->inputCableSide = $inputCableSide;
+        $this->outputCableSide = $outputCableSide;
         $this->updatedAt = $now;
         ++$this->version;
     }

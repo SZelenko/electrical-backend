@@ -11,8 +11,9 @@ use Symfony\Component\Uid\Uuid;
 
 /**
  * A terminal-block bar: all its terminals are electrically joined. It either sits on a DIN rail
- * (`rail` set, one module wide, 1-12 terminals) or in the terminal row (`rail` null, 1-60
- * terminals, width ceil(terminals / 2)). The panel is set for every block.
+ * (`rail` set, `row` null, one module wide, 1-12 terminals) or in one of the two terminal rows
+ * (`rail` null, `row` top/bottom, 1-60 terminals, width ceil(terminals / 2)). The panel is set for
+ * every block.
  */
 #[ORM\Entity]
 #[ORM\Table(name: 'terminal_block')]
@@ -29,6 +30,10 @@ class TerminalBlock
     #[ORM\ManyToOne(targetEntity: DinRail::class)]
     #[ORM\JoinColumn(nullable: true, onDelete: 'CASCADE')]
     public private(set) ?DinRail $rail;
+
+    /** Terminal row of a row block; null for a rail block. */
+    #[ORM\Column(name: 'terminal_row', length: 6, nullable: true, enumType: TerminalRow::class)]
+    public private(set) ?TerminalRow $row;
 
     #[ORM\Column(type: Types::SMALLINT)]
     public private(set) int $offsetModules;
@@ -50,6 +55,7 @@ class TerminalBlock
         Uuid $id,
         Panel $panel,
         ?DinRail $rail,
+        ?TerminalRow $row,
         int $offsetModules,
         int $widthModules,
         int $terminalCount,
@@ -59,6 +65,7 @@ class TerminalBlock
         $this->id = $id;
         $this->panel = $panel;
         $this->rail = $rail;
+        $this->row = $row;
         $this->offsetModules = $offsetModules;
         $this->widthModules = $widthModules;
         $this->terminalCount = $terminalCount;
@@ -75,18 +82,19 @@ class TerminalBlock
         ?WireColour $colour,
         string $label,
     ): self {
-        return new self($id, $rail->panel, $rail, $offsetModules, $widthModules, $terminalCount, $colour, $label);
+        return new self($id, $rail->panel, $rail, null, $offsetModules, $widthModules, $terminalCount, $colour, $label);
     }
 
     public static function inRow(
         Uuid $id,
         Panel $panel,
+        TerminalRow $row,
         int $offsetModules,
         int $widthModules,
         int $terminalCount,
         ?WireColour $colour,
         string $label,
     ): self {
-        return new self($id, $panel, null, $offsetModules, $widthModules, $terminalCount, $colour, $label);
+        return new self($id, $panel, null, $row, $offsetModules, $widthModules, $terminalCount, $colour, $label);
     }
 }

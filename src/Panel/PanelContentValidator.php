@@ -41,10 +41,6 @@ final readonly class PanelContentValidator
     public const int MAX_CABLE_WIRES = 4;
     public const int MAX_POLES_PER_MODULE = 4;
     public const int MAX_ROW_BLOCKS = 60;
-    public const int MODULE = 175;
-    public const int CABLE_PAD = 50;
-    public const int CABLE_PITCH = 100;
-    public const int CABLE_GAP = 100;
     public const int MAX_BUSBARS_PER_RAIL = 30;
     public const int MIN_BUSBAR_COUNT = 2;
     public const int MAX_BUSBAR_COUNT = 60;
@@ -80,9 +76,9 @@ final readonly class PanelContentValidator
         );
         $railWidth = $railWidthOk ? $content->railWidthModules : null;
 
-        $inputsOk = $this->validateCables($run, $content, $cableWires);
-        $rowCapacity = $railWidthOk && $inputsOk ? $railWidth - self::rowStartModules($content) : null;
-        $this->validateTerminalRow($run, $content, $blocks, $rowCapacity);
+        $this->validateCables($run, $content, $cableWires);
+        $this->validateTerminalRow($run, $content->terminalRow, 'terminalRow', 'top', $blocks, $railWidth);
+        $this->validateTerminalRow($run, $content->bottomTerminalRow, 'bottomTerminalRow', 'bottom', $blocks, $railWidth);
         $this->validateRails($run, $content, $terminals, $blocks, $busbars, $railWidth);
         $this->validateWires($run, $content, $cableWires, $terminals, $blocks, $busbars);
 
@@ -94,24 +90,19 @@ final readonly class PanelContentValidator
 
     /**
      * @param array<string, true> $cableWires
-     *
-     * @return bool whether the input cables are valid enough to compute the row start
      */
-    private function validateCables(ValidationRun $run, PanelContent $content, array &$cableWires): bool
+    private function validateCables(ValidationRun $run, PanelContent $content, array &$cableWires): void
     {
-        $inputsOk = true;
         $inputCables = $this->listOrViolation($run, $content->inputCables, 'content.inputCables');
         $outputCables = $this->listOrViolation($run, $content->outputCables, 'content.outputCables');
 
         $inputs = \count($inputCables);
-        if (!self::isList($content->inputCables)) {
-            $inputsOk = false;
-        } elseif ($inputs < 1) {
-            $run->add('content.inputCables', 'At least one input cable is required.');
-            $inputsOk = false;
-        } elseif ($inputs > self::MAX_INPUT_CABLES) {
-            $inputsOk = false;
-            $run->add('content.inputCables', \sprintf('At most %d input cables are allowed.', self::MAX_INPUT_CABLES));
+        if (self::isList($content->inputCables)) {
+            if ($inputs < 1) {
+                $run->add('content.inputCables', 'At least one input cable is required.');
+            } elseif ($inputs > self::MAX_INPUT_CABLES) {
+                $run->add('content.inputCables', \sprintf('At most %d input cables are allowed.', self::MAX_INPUT_CABLES));
+            }
         }
 
         foreach ($inputCables as $i => $cable) {
@@ -121,7 +112,7 @@ final readonly class PanelContentValidator
             $run->decimalRange($cable->voltage, 0.0, true, Cable::INPUT_LABEL_MAX_VOLTAGE, Cable::INPUT_LABEL_SCALE_VOLTAGE, "$path.voltage", $cable->id);
             $run->decimalRange($cable->frequency, 0.0, false, Cable::INPUT_LABEL_MAX_FREQUENCY, Cable::INPUT_LABEL_SCALE_FREQUENCY, "$path.frequency", $cable->id);
             $run->decimalRange($cable->crossSection, 0.0, true, Cable::INPUT_LABEL_MAX_CROSS_SECTION, Cable::INPUT_LABEL_SCALE_CROSS_SECTION, "$path.crossSection", $cable->id);
-            $inputsOk = $this->validateCableWires($run, $cable->wires, $path, $cableWires) && $inputsOk;
+            $this->validateCableWires($run, $cable->wires, $path, $cableWires);
         }
 
         if (\count($outputCables) > self::MAX_OUTPUT_CABLES) {
@@ -135,66 +126,53 @@ final readonly class PanelContentValidator
             $run->maxLength($cable->description, self::MAX_DESCRIPTION_LENGTH, "$path.description", $cable->id);
             $this->validateCableWires($run, $cable->wires, $path, $cableWires);
         }
-
-        return $inputsOk;
     }
 
     /**
      * @param list<CableWireDto>   $wires
      * @param array<string, true>  $cableWires
-     *
-     * @return bool whether the wire count is valid (the row start depends on it)
      */
-    private function validateCableWires(ValidationRun $run, array $wires, string $path, array &$cableWires): bool
+    private function validateCableWires(ValidationRun $run, array $wires, string $path, array &$cableWires): void
     {
         if (!self::isList($wires)) {
             $run->add("$path.wires", 'Must be a JSON array (list), not an object.');
 
-            return false;
+            return;
         }
         $count = \count($wires);
-        $countOk = $count >= 1 && $count <= self::MAX_CABLE_WIRES;
-        if (!$countOk) {
+        if ($count < 1 || $count > self::MAX_CABLE_WIRES) {
             $run->add("$path.wires", \sprintf('A cable has 1 to %d wires.', self::MAX_CABLE_WIRES));
         }
         foreach ($wires as $j => $wire) {
             $run->claimId($wire->id, "$path.wires[$j].id");
             $cableWires[$wire->id] = true;
         }
-
-        return $countOk;
     }
 
     /**
-     * Module-aligned start of the terminal row: the width of the input-cable row plus one gap, in
-     * whole modules (integer tenths of a millimetre, see the geometry in panel-domain).
-     */
-    public static function rowStartModules(PanelContent $content): int
-    {
-        $width = 0;
-        foreach ($content->inputCables as $cable) {
-            $width += 2 * self::CABLE_PAD + \count($cable->wires) * self::CABLE_PITCH;
-        }
-        $width += (\count($content->inputCables) - 1) * self::CABLE_GAP;
-
-        return intdiv($width + self::CABLE_GAP + self::MODULE - 1, self::MODULE);
-    }
-
-    /**
+     * @param list<TerminalBlockDto>          $blocksDto   the row's blocks as received (may not be a real list)
+     * @param string                          $property    content property holding the row
+     * @param string                          $rowName     "top" or "bottom", used in messages
      * @param array<string, array{int, bool}> $blocks
-     * @param int|null                        $rowCapacity rail width minus the row start, null when the rail width or the input cables are invalid
+     * @param int|null                        $rowCapacity rail width, null when it is invalid
      */
-    private function validateTerminalRow(ValidationRun $run, PanelContent $content, array &$blocks, ?int $rowCapacity): void
-    {
-        $row = $this->listOrViolation($run, $content->terminalRow, 'content.terminalRow');
+    private function validateTerminalRow(
+        ValidationRun $run,
+        array $blocksDto,
+        string $property,
+        string $rowName,
+        array &$blocks,
+        ?int $rowCapacity,
+    ): void {
+        $row = $this->listOrViolation($run, $blocksDto, "content.$property");
         if (\count($row) > self::MAX_ROW_BLOCKS) {
-            $run->add('content.terminalRow', \sprintf('At most %d terminal blocks are allowed in the terminal row.', self::MAX_ROW_BLOCKS));
+            $run->add("content.$property", \sprintf('At most %d terminal blocks are allowed in the %s terminal row.', self::MAX_ROW_BLOCKS, $rowName));
         }
 
         /** @var list<array{int, int, string, string}> $spans */
         $spans = [];
         foreach ($row as $i => $block) {
-            $path = "content.terminalRow[$i]";
+            $path = "content.{$property}[$i]";
             $run->claimId($block->id, "$path.id");
             $run->maxLength($block->label, self::MAX_LABEL_LENGTH, "$path.label", $block->id);
             $countOk = $run->intRange(
@@ -220,11 +198,11 @@ final readonly class PanelContentValidator
                 $block->offsetModules,
                 $block->widthModules,
                 $path,
-                'Does not fit within the terminal row (rail width minus the input cables).',
+                \sprintf('Does not fit within the %s terminal row (rail width).', $rowName),
             );
         }
 
-        $this->checkOverlaps($run, $spans, 'Overlaps another block in the terminal row.');
+        $this->checkOverlaps($run, $spans, \sprintf('Overlaps another block in the %s terminal row.', $rowName));
     }
 
     /**

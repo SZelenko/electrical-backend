@@ -17,6 +17,7 @@ use App\Entity\Panel\Panel;
 use App\Entity\Panel\PanelWire;
 use App\Entity\Panel\PanelWireBend;
 use App\Entity\Panel\TerminalBlock;
+use App\Entity\Panel\TerminalRow;
 use App\Entity\Panel\WireEndpoint;
 use App\Panel\Content\BendDto;
 use App\Panel\Content\BusbarDto;
@@ -76,17 +77,20 @@ final readonly class PanelContentMapper
         /** @var array<string, Busbar> $busbarById */
         $busbarById = [];
 
-        foreach (self::values($content->terminalRow) as $dto) {
-            $block = TerminalBlock::inRow(
-                Uuid::fromString($dto->id),
-                $panel,
-                $dto->offsetModules,
-                $dto->widthModules,
-                $dto->terminalCount,
-                $dto->colour,
-                $dto->label,
-            );
-            $blocks[] = $blockById[$dto->id] = $block;
+        foreach ([[TerminalRow::Top, $content->terminalRow], [TerminalRow::Bottom, $content->bottomTerminalRow]] as [$row, $rowDtos]) {
+            foreach (self::values($rowDtos) as $dto) {
+                $block = TerminalBlock::inRow(
+                    Uuid::fromString($dto->id),
+                    $panel,
+                    $row,
+                    $dto->offsetModules,
+                    $dto->widthModules,
+                    $dto->terminalCount,
+                    $dto->colour,
+                    $dto->label,
+                );
+                $blocks[] = $blockById[$dto->id] = $block;
+            }
         }
 
         foreach (self::values($content->rails) as $i => $railDto) {
@@ -164,7 +168,7 @@ final readonly class PanelContentMapper
         return new PanelTree($cables, $cableWires, $rails, $elements, $poles, $blocks, $busbars, $wires, $bends);
     }
 
-    public function toContent(PanelTree $tree, int $railWidthModules): PanelContent
+    public function toContent(PanelTree $tree, Panel $panel): PanelContent
     {
         /** @var array<string, list<CableWireDto>> $wiresByCable */
         $wiresByCable = [];
@@ -222,8 +226,8 @@ final readonly class PanelContentMapper
                 $element->style,
             )];
         }
-        /** @var list<array{int, TerminalBlockDto}> $rowBlocks */
-        $rowBlocks = [];
+        /** @var array{top: list<array{int, TerminalBlockDto}>, bottom: list<array{int, TerminalBlockDto}>} $rowBlocks */
+        $rowBlocks = ['top' => [], 'bottom' => []];
         foreach ($tree->terminalBlocks as $block) {
             $dto = new TerminalBlockDto(
                 $block->id->toRfc4122(),
@@ -234,13 +238,13 @@ final readonly class PanelContentMapper
                 $block->label,
             );
             if (null === $block->rail) {
-                $rowBlocks[] = [$block->offsetModules, $dto];
+                $rowBlocks[($block->row ?? throw new \LogicException('A railless terminal block must have a row.'))->value][] = [$block->offsetModules, $dto];
             } else {
                 $itemsByRail[$block->rail->id->toRfc4122()][] = [$block->offsetModules, $dto];
             }
         }
-        usort($rowBlocks, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
-        $terminalRow = array_map(static fn(array $item): TerminalBlockDto => $item[1], $rowBlocks);
+        $terminalRow = self::sortedRow($rowBlocks['top']);
+        $bottomTerminalRow = self::sortedRow($rowBlocks['bottom']);
 
         /** @var array<string, list<array{int, BusbarDto}>> $busbarsByRail */
         $busbarsByRail = [];
@@ -301,7 +305,17 @@ final readonly class PanelContentMapper
             );
         }
 
-        return new PanelContent($railWidthModules, $inputCables, $outputCables, $terminalRow, $railDtos, $wireDtos);
+        return new PanelContent(
+            $panel->railWidthModules,
+            $panel->inputCableSide,
+            $panel->outputCableSide,
+            $inputCables,
+            $outputCables,
+            $terminalRow,
+            $bottomTerminalRow,
+            $railDtos,
+            $wireDtos,
+        );
     }
 
     /**
@@ -368,5 +382,17 @@ final readonly class PanelContentMapper
     private static function values(array $items): array
     {
         return array_values($items);
+    }
+
+    /**
+     * @param list<array{int, TerminalBlockDto}> $items offset and block
+     *
+     * @return list<TerminalBlockDto> the blocks sorted by offset
+     */
+    private static function sortedRow(array $items): array
+    {
+        usort($items, static fn(array $a, array $b): int => $a[0] <=> $b[0]);
+
+        return array_map(static fn(array $item): TerminalBlockDto => $item[1], $items);
     }
 }

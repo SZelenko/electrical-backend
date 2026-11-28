@@ -161,9 +161,12 @@ final class GetPanelTest extends PanelApiTestCase
         $panel = $this->createPanel($user);
         $content = [
             'railWidthModules' => 24,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10, [B::uuid(11), B::uuid(12)])],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [],
             'wires' => [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12))],
         ];

@@ -31,9 +31,12 @@ final class BusbarCoverageTest extends TestCase
     {
         $content = B::toContent([
             'railWidthModules' => 60,
+            'inputCableSide' => 'top',
+            'outputCableSide' => 'bottom',
             'inputCables' => [B::inputCable(10)],
             'outputCables' => [],
             'terminalRow' => [],
+            'bottomTerminalRow' => [],
             'rails' => [B::rail(30, $elements, $blocks, 0, [B::busbar(60, $anchor, $count)])],
             'wires' => [],
         ]);

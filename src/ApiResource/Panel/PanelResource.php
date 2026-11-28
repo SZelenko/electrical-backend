@@ -70,7 +70,7 @@ use App\State\Panel\SavePanelContentProcessor;
             processor: CreatePanelProcessor::class,
             openapi: new OpenApiOperation(
                 tags: ['Panels'],
-                summary: 'Creates a panel with one default input cable (3 wires, 230 V, 50 Hz, 4 mm²).',
+                summary: 'Creates a panel with one default input cable (2 wires: brown and blue, 230 V, 50 Hz, 4 mm²).',
             ),
         ),
         new Get(

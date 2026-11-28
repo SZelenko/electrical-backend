@@ -123,29 +123,57 @@ final class PanelContentValidatorTest extends TestCase
         $this->expectNotToPerformAssertions();
     }
 
-    /** @return iterable<string, array{list<int>, int}> wire counts per input cable => row start module */
-    public static function rowStarts(): iterable
+    /** @return iterable<string, array{list<int>}> wire counts per input cable */
+    public static function inputCableShapes(): iterable
     {
-        yield '1 cable, 1 wire' => [[1], 2];
-        yield '1 cable, 2 wires' => [[2], 3];
-        yield '1 cable, 3 wires' => [[3], 3];
-        yield '1 cable, 4 wires' => [[4], 4];
-        yield '2 cables, 3 + 2 wires' => [[3, 2], 6];
-        yield '2 cables, 1 + 1 wires' => [[1, 1], 4];
-        yield '20 cables, 4 wires' => [array_fill(0, 20, 4), 69];
+        yield '1 cable, 1 wire' => [[1]];
+        yield '1 cable, 4 wires' => [[4]];
+        yield '2 cables, 3 + 2 wires' => [[3, 2]];
+        yield '20 cables, 4 wires' => [array_fill(0, 20, 4)];
     }
 
     /** @param list<int> $wireCounts */
-    #[DataProvider('rowStarts')]
-    public function testRowStartModulesSuccess(array $wireCounts, int $expected): void
+    #[DataProvider('inputCableShapes')]
+    public function testRowCapacityIsTheRailWidthWhateverTheInputCablesSuccess(array $wireCounts): void
     {
         $cables = [];
         foreach ($wireCounts as $i => $count) {
             $cables[] = B::inputCable(100 + 10 * $i, array_map(static fn(int $k): string => B::uuid(1000 + 100 * $i + $k), range(1, $count)));
         }
-        $content = B::with(B::minimal(), ['inputCables' => $cables]);
+        // a full 60-module block in each row, starting at module 0
+        $content = B::with(B::minimal(), [
+            'railWidthModules' => 60,
+            'inputCables' => $cables,
+        ]);
+        $content['terminalRow'] = [B::rowBlock(50, 0, 60)];
+        $content['bottomTerminalRow'] = [B::rowBlock(51, 0, 60)];
 
-        self::assertSame($expected, PanelContentValidator::rowStartModules(B::toContent($content)));
+        new PanelContentValidator()->validate(B::toContent($content));
+
+        $this->expectNotToPerformAssertions();
+    }
+
+    /** @param list<int> $wireCounts */
+    #[DataProvider('inputCableShapes')]
+    public function testRowBlockPastTheRailWidthIsRejectedWhateverTheInputCablesError(array $wireCounts): void
+    {
+        $cables = [];
+        foreach ($wireCounts as $i => $count) {
+            $cables[] = B::inputCable(100 + 10 * $i, array_map(static fn(int $k): string => B::uuid(1000 + 100 * $i + $k), range(1, $count)));
+        }
+        $content = B::with(B::minimal(), ['railWidthModules' => 10, 'inputCables' => $cables]);
+        $content['terminalRow'] = [B::rowBlock(50, 9, 4)];
+        $content['bottomTerminalRow'] = [B::rowBlock(51, 9, 4)];
+
+        try {
+            new PanelContentValidator()->validate(B::toContent($content));
+            self::fail('The content must be rejected.');
+        } catch (PanelValidationException $e) {
+            self::assertEqualsCanonicalizing(
+                ['content.terminalRow[0].offsetModules', 'content.bottomTerminalRow[0].offsetModules'],
+                array_map(static fn(Violation $v): string => $v->propertyPath, $e->violations),
+            );
+        }
     }
 
     /**
@@ -169,6 +197,7 @@ final class PanelContentValidatorTest extends TestCase
         yield 'invalid rail width: no fit message, no row message' => [B::with(B::sample(), [
             'railWidthModules' => 0,
             'terminalRow' => [B::rowBlock(50, 0, 2)],
+            'bottomTerminalRow' => [B::rowBlock(51, 0, 2)],
         ]), ['content.railWidthModules']];
         yield 'no input cable: no row message' => [B::with(B::sample(), [
             'inputCables' => [],

@@ -28,10 +28,24 @@ final class PanelContentOpenApiTest extends ApiTestCase
     {
         $schema = $this->schemas()['PanelContent'];
 
-        self::assertSame(['railWidthModules', 'inputCables', 'outputCables', 'terminalRow', 'rails', 'wires'], $schema['required']);
+        self::assertSame(['railWidthModules', 'inputCableSide', 'outputCableSide', 'inputCables', 'outputCables', 'terminalRow', 'bottomTerminalRow', 'rails', 'wires'], $schema['required']);
         self::assertSame('integer', $schema['properties']['railWidthModules']['type']);
         self::assertSame('array', $schema['properties']['terminalRow']['type']);
         self::assertSame('#/components/schemas/TerminalBlockDto', $schema['properties']['terminalRow']['items']['$ref']);
+        self::assertSame('array', $schema['properties']['bottomTerminalRow']['type']);
+        self::assertSame('#/components/schemas/TerminalBlockDto', $schema['properties']['bottomTerminalRow']['items']['$ref']);
+    }
+
+    public function testPanelContentSchemaListsCableSidesSuccess(): void
+    {
+        $schema = $this->schemas()['PanelContent'];
+
+        foreach (['inputCableSide', 'outputCableSide'] as $field) {
+            self::assertContains($field, $schema['required']);
+            self::assertSame('string', $schema['properties'][$field]['type']);
+            self::assertSame(['top', 'bottom', 'left', 'right'], $schema['properties'][$field]['enum']);
+        }
+        self::assertContains('bottomTerminalRow', $schema['required']);
     }
 
     public function testTerminalBlockSchemaHasColourAndLabelSuccess(): void

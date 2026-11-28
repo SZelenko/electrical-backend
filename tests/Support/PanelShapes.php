@@ -19,7 +19,7 @@ namespace App\Tests\Support;
  * @phpstan-type Endpoint array{kind: string, elementId?: string, poleIndex?: int, side?: string, terminalBlockId?: string, terminalIndex?: int, cableWireId?: string, contactSide?: string|null, busbarId?: string, feedIndex?: int}
  * @phpstan-type Bend array{x: float|int, y: float|int}
  * @phpstan-type Wire array{id: string, colour: string, crossSection: string, start: Endpoint, end: Endpoint, bends: list<Bend>}
- * @phpstan-type Content array{railWidthModules: int, inputCables: list<InputCable>, outputCables: list<OutputCable>, terminalRow: list<Block>, rails: list<Rail>, wires: list<Wire>}
+ * @phpstan-type Content array{railWidthModules: int, inputCableSide: string, outputCableSide: string, inputCables: list<InputCable>, outputCables: list<OutputCable>, terminalRow: list<Block>, bottomTerminalRow: list<Block>, rails: list<Rail>, wires: list<Wire>}
  * @phpstan-type Group array{sources: list<string>, wireIds: list<string>, terminals: list<Endpoint>}
  * @phpstan-type PanelBody array{id: string, name: string, version: int, createdAt: string, updatedAt: string, deletedAt?: string|null, content: Content, shortCircuits: list<Group>}
  * @phpstan-type ListItem array{id: string, name: string, version: int, createdAt: string, updatedAt: string, deletedAt?: string|null}

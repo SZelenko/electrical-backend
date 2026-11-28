@@ -64,6 +64,35 @@ final class RailWidthLabelsAndRowCapacityTest extends PanelApiTestCase
         self::assertSame(31, $this->sqlInt('SELECT rail_width_modules FROM panel WHERE id = ?', [$panel['id']]));
     }
 
+    public function testNarrowingTheRailWidthBelowTheBottomRowIsRejectedError(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $wide = B::with(B::minimal(), ['railWidthModules' => 24, 'bottomTerminalRow' => [B::rowBlock(50, 20, 4)]]);
+        $this->saveContent($user, $panel['id'], $wide);
+
+        $narrow = B::with($wide, ['railWidthModules' => 21]);
+        $violations = $this->violations($this->putContent($user, $panel['id'], $narrow, 2));
+
+        self::assertSame(['content.bottomTerminalRow[0].offsetModules'], array_column($violations, 'propertyPath'));
+        self::assertSame('Does not fit within the bottom terminal row (rail width).', $violations[0]['message']);
+        self::assertSame(2, $this->panelRow($panel['id'])?->version);
+        self::assertSame(24, $this->sqlInt('SELECT rail_width_modules FROM panel WHERE id = ?', [$panel['id']]));
+    }
+
+    public function testNarrowingTheRailWidthExactlyToTheBottomRowSucceedsSuccess(): void
+    {
+        $user = $this->createVerifiedUser();
+        $panel = $this->createPanel($user);
+        $wide = B::with(B::minimal(), ['railWidthModules' => 24, 'bottomTerminalRow' => [B::rowBlock(50, 20, 4)]]);
+        $this->saveContent($user, $panel['id'], $wide);
+
+        $body = $this->saveContent($user, $panel['id'], B::with($wide, ['railWidthModules' => 22]), 2);
+
+        self::assertSame(22, $body['content']['railWidthModules']);
+        self::assertSame(3, $body['version']);
+    }
+
     public function testEveryRailSharesThePanelWidthSuccess(): void
     {
         $user = $this->createVerifiedUser();
@@ -110,34 +139,34 @@ final class RailWidthLabelsAndRowCapacityTest extends PanelApiTestCase
             $c->set('railWidthModules', 10);
             $c->append('rails', B::rail(70, [B::element(71, 9, 2)]));
         }, 'content.rails[1].elements[0].offsetModules', 'Does not fit within the rail width.', B::uuid(71)];
-        yield 'row block past the capacity' => [static function (Doc $c): void {
-            // 3 input wires: the row starts at module 3, the capacity is 24 - 3 = 21
-            $c->append('terminalRow', B::rowBlock(50, 20, 4));
-        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(50)];
-        yield 'row block when the cables take the whole rail' => [static function (Doc $c): void {
-            $c->set('railWidthModules', 3);
-            $c->set('rails.0.elements', []);
-            $c->set('rails.0.terminalBlocks', []);
-            $c->set('wires', []);
-            $c->append('terminalRow', B::rowBlock(50, 0, 1));
-        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(50)];
-        yield 'row block when the cables are wider than the rail' => [static function (Doc $c): void {
+        yield 'top row block ends one module past the rail width' => [static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 23, 4));
+        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the top terminal row (rail width).', B::uuid(50)];
+        yield 'top row block starts at the rail width' => [static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 24, 1));
+        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the top terminal row (rail width).', B::uuid(50)];
+        yield 'bottom row block ends one module past the rail width' => [static function (Doc $c): void {
+            $c->append('bottomTerminalRow', B::rowBlock(50, 23, 4));
+        }, 'content.bottomTerminalRow[0].offsetModules', 'Does not fit within the bottom terminal row (rail width).', B::uuid(50)];
+        yield 'bottom row block starts at the rail width' => [static function (Doc $c): void {
+            $c->append('bottomTerminalRow', B::rowBlock(50, 24, 1));
+        }, 'content.bottomTerminalRow[0].offsetModules', 'Does not fit within the bottom terminal row (rail width).', B::uuid(50)];
+        yield 'a block past the rail width is rejected whatever the input cables (4 wires)' => [static function (Doc $c): void {
+            $c->set('inputCables.0.wires', array_map(static fn(int $i): array => ['id' => B::uuid($i), 'colour' => 'brown'], [11, 12, 13, 14]));
+            $c->append('terminalRow', B::rowBlock(50, 23, 4));
+        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the top terminal row (rail width).', B::uuid(50)];
+        yield 'rail width of one module and a two-module top row block' => [static function (Doc $c): void {
             $c->set('railWidthModules', 1);
             $c->set('rails.0.elements', []);
             $c->set('rails.0.terminalBlocks', []);
             $c->set('wires', []);
-            $c->append('terminalRow', B::rowBlock(50, 0, 1));
-        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(50)];
-        yield 'a fourth input-cable wire pushes the row block out' => [static function (Doc $c): void {
-            // 4 wires: row start module 4, capacity 20; the block (offset 19, 2 modules) ends at 21
-            $c->set('inputCables.0.wires', array_map(static fn(int $i): array => ['id' => B::uuid($i), 'colour' => 'brown'], [11, 12, 13, 14]));
-            $c->append('terminalRow', B::rowBlock(50, 19, 4));
-        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(50)];
-        yield 'a second input cable pushes the row block out' => [static function (Doc $c): void {
-            // box widths 400 + 300 + gap 100 = 800, + gap 100 = 900 -> row start module 6, capacity 18
-            $c->append('inputCables', B::inputCable(15, [B::uuid(16), B::uuid(17)]));
-            $c->append('terminalRow', B::rowBlock(50, 17, 4));
-        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the terminal row (rail width minus the input cables).', B::uuid(50)];
+            $c->append('terminalRow', B::rowBlock(50, 0, 4));
+        }, 'content.terminalRow[0].offsetModules', 'Does not fit within the top terminal row (rail width).', B::uuid(50)];
+        yield 'the bottom row overflows a narrowed rail while the top row fits' => [static function (Doc $c): void {
+            $c->set('railWidthModules', 10);
+            $c->append('terminalRow', B::rowBlock(50, 0, 4));
+            $c->append('bottomTerminalRow', B::rowBlock(51, 9, 4));
+        }, 'content.bottomTerminalRow[0].offsetModules', 'Does not fit within the bottom terminal row (rail width).', B::uuid(51)];
     }
 
     /** @param callable(Doc): void $mutate */
@@ -159,46 +188,59 @@ final class RailWidthLabelsAndRowCapacityTest extends PanelApiTestCase
         self::assertSame(60, $this->sqlInt('SELECT rail_width_modules FROM panel WHERE id = ?', [$panel['id']]), 'The stored width is untouched.');
     }
 
-    /** @return iterable<string, array{callable(Doc): void, int}> */
+    /** @return iterable<string, array{callable(Doc): void, int, int}> */
     public static function rowCapacityBoundaries(): iterable
     {
-        yield 'block ends exactly at the capacity (3 wires, width 24)' => [static function (Doc $c): void {
-            $c->append('terminalRow', B::rowBlock(50, 19, 4));
-        }, 1];
-        yield 'one-module block in the last free module' => [static function (Doc $c): void {
-            $c->append('terminalRow', B::rowBlock(50, 20, 1));
-        }, 1];
-        yield 'whole row filled' => [static function (Doc $c): void {
-            $c->set('terminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 20)));
-        }, 21];
-        yield 'capacity of exactly one module (rail width = row start + 1)' => [static function (Doc $c): void {
-            $c->set('railWidthModules', 4);
-            $c->set('rails.0.terminalBlocks', []);
-            $c->set('wires', []);
-            $c->append('terminalRow', B::rowBlock(50, 0, 1));
-        }, 1];
-        yield 'one input wire starts the row at module 2' => [static function (Doc $c): void {
-            $c->set('inputCables.0.wires', [['id' => B::uuid(11), 'colour' => 'brown']]);
-            $c->set('wires', []);
-            $c->set('railWidthModules', 12);
-            $c->set('rails.0.terminalBlocks.0.offsetModules', 4);
-            $c->append('terminalRow', B::rowBlock(50, 0, 20));
-        }, 1];
-        yield 'terminal row of a wide rail' => [static function (Doc $c): void {
-            $c->set('railWidthModules', 60);
-            $c->append('terminalRow', B::rowBlock(50, 0, 60));
-        }, 1];
-        yield 'rail width without any row block while the cables fill it' => [static function (Doc $c): void {
+        yield 'block ends exactly at the rail width' => [static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 22, 4));
+        }, 1, 0];
+        yield 'one-module block in the last module' => [static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 23, 1));
+        }, 1, 0];
+        yield 'whole top row filled' => [static function (Doc $c): void {
+            $c->set('terminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 23)));
+        }, 24, 0];
+        yield 'whole bottom row filled' => [static function (Doc $c): void {
+            $c->set('bottomTerminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 23)));
+        }, 0, 24];
+        yield 'both rows filled independently' => [static function (Doc $c): void {
+            $c->set('terminalRow', [B::rowBlock(50, 0, 48)]);
+            $c->set('bottomTerminalRow', [B::rowBlock(51, 0, 48)]);
+        }, 1, 1];
+        yield 'capacity of exactly one module (rail width 1)' => [static function (Doc $c): void {
             $c->set('railWidthModules', 1);
             $c->set('rails.0.elements', []);
             $c->set('rails.0.terminalBlocks', []);
             $c->set('wires', []);
-        }, 0];
+            $c->append('terminalRow', B::rowBlock(50, 0, 1));
+            $c->append('bottomTerminalRow', B::rowBlock(51, 0, 2));
+        }, 1, 1];
+        yield 'capacity is the rail width with many input cables (4 cables x 4 wires)' => [static function (Doc $c): void {
+            $c->set('inputCables', array_map(
+                static fn(int $i): array => B::inputCable(100 + 10 * $i, array_map(static fn(int $k): string => B::uuid(1000 + 100 * $i + $k), [1, 2, 3, 4])),
+                [0, 1, 2, 3],
+            ));
+            $c->set('wires', []);
+            $c->set('railWidthModules', 24);
+            $c->append('terminalRow', B::rowBlock(50, 0, 48));
+            $c->append('bottomTerminalRow', B::rowBlock(51, 0, 48));
+        }, 1, 1];
+        yield 'terminal rows of a wide rail' => [static function (Doc $c): void {
+            $c->set('railWidthModules', 60);
+            $c->append('terminalRow', B::rowBlock(50, 0, 60));
+            $c->append('bottomTerminalRow', B::rowBlock(51, 0, 60));
+        }, 1, 1];
+        yield 'rail width without any row block' => [static function (Doc $c): void {
+            $c->set('railWidthModules', 1);
+            $c->set('rails.0.elements', []);
+            $c->set('rails.0.terminalBlocks', []);
+            $c->set('wires', []);
+        }, 0, 0];
     }
 
     /** @param callable(Doc): void $mutate */
     #[DataProvider('rowCapacityBoundaries')]
-    public function testRowCapacityBoundarySuccess(callable $mutate, int $blocks): void
+    public function testRowCapacityBoundarySuccess(callable $mutate, int $topBlocks, int $bottomBlocks): void
     {
         $user = $this->createVerifiedUser();
         $panel = $this->createPanel($user);
@@ -207,7 +249,8 @@ final class RailWidthLabelsAndRowCapacityTest extends PanelApiTestCase
 
         $body = $this->saveContent($user, $panel['id'], $doc->content());
 
-        self::assertCount($blocks, $body['content']['terminalRow']);
+        self::assertCount($topBlocks, $body['content']['terminalRow']);
+        self::assertCount($bottomBlocks, $body['content']['bottomTerminalRow']);
         self::assertSame(2, $body['version']);
     }
 

@@ -294,38 +294,35 @@ final class PanelContentCases
         yield 'row block does not fit the row' => [self::mutated(static function (Doc $c): void {
             $c->append('terminalRow', B::rowBlock(50, 59, 4));
         }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
-        // the sample has 3 input-cable wires: the row starts at module 3, the capacity is 24 - 3 = 21
-        yield 'row block one module past the capacity' => [self::mutated(static function (Doc $c): void {
-            $c->append('terminalRow', B::rowBlock(50, 20, 4));
+        // the capacity of a row is the rail width (24 in the sample), whatever the input cables
+        yield 'row block starting at the rail width' => [self::mutated(static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 24, 2));
         }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
-        yield 'row block fits the rail width but not the row (rail width minus the input cables)' => [self::mutated(static function (Doc $c): void {
-            $c->set('railWidthModules', 24);
-            $c->append('terminalRow', B::rowBlock(50, 22, 2));
+        yield 'row block ends one module past the rail width' => [self::mutated(static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 23, 4));
         }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
-        yield 'more input-cable wires shrink the row capacity' => [self::mutated(static function (Doc $c): void {
-            // 4 wires: 100 + 400 = 500, + gap 100 = 600 -> start module 4, capacity 20; the block ends at 21
+        yield 'many input-cable wires do not shrink the row capacity (block past the rail width)' => [self::mutated(static function (Doc $c): void {
             $c->set('inputCables.0.wires', array_map(static fn(int $i): array => ['id' => B::uuid($i), 'colour' => 'brown'], [11, 12, 13, 14]));
-            $c->append('terminalRow', B::rowBlock(50, 19, 4));
+            $c->append('terminalRow', B::rowBlock(50, 21, 8));
         }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
-        yield 'a second input cable shrinks the row capacity' => [self::mutated(static function (Doc $c): void {
-            // box widths 400 + 300 + gap 100 = 800, + gap 100 = 900 -> start module 6, capacity 18; the block ends at 19
-            $c->append('inputCables', B::inputCable(15, [B::uuid(16), B::uuid(17)]));
-            $c->append('terminalRow', B::rowBlock(50, 17, 4));
-        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
-        yield 'no row capacity left (rail width equals the row start)' => [self::mutated(static function (Doc $c): void {
-            $c->set('railWidthModules', 3);
-            $c->set('rails.0.elements', []);
-            $c->set('rails.0.terminalBlocks', []);
-            $c->set('wires', [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12))]);
-            $c->append('terminalRow', B::rowBlock(50, 0, 1));
-        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
-        yield 'negative row capacity (rail narrower than the row start)' => [self::mutated(static function (Doc $c): void {
-            $c->set('railWidthModules', 2);
-            $c->set('rails.0.elements', []);
-            $c->set('rails.0.terminalBlocks', []);
-            $c->set('wires', [B::wire(40, B::cableWireEnd(11), B::cableWireEnd(12))]);
-            $c->append('terminalRow', B::rowBlock(50, 0, 1));
-        }), 'content.terminalRow[0].offsetModules', B::uuid(50)];
+        yield 'bottom row block ends past the rail width' => [self::mutated(static function (Doc $c): void {
+            $c->append('bottomTerminalRow', B::rowBlock(50, 23, 4));
+        }), 'content.bottomTerminalRow[0].offsetModules', B::uuid(50)];
+        yield 'bottom row blocks overlap' => [self::mutated(static function (Doc $c): void {
+            $c->append('bottomTerminalRow', B::rowBlock(50, 0, 4));
+            $c->append('bottomTerminalRow', B::rowBlock(51, 1, 2));
+        }), 'content.bottomTerminalRow[1].offsetModules', B::uuid(51)];
+        yield 'bottom row block id equals a top row block id' => [self::mutated(static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 0, 2));
+            $c->append('bottomTerminalRow', B::rowBlock(50, 5, 2));
+        }), 'content.bottomTerminalRow[0].id', B::uuid(50)];
+        yield 'bottom row has 61 blocks' => [self::mutated(static function (Doc $c): void {
+            $c->set('railWidthModules', 60);
+            $c->set('bottomTerminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i % 60, 1), range(0, 60)));
+        }), 'content.bottomTerminalRow', null];
+        yield 'row block with width 0 in the bottom row' => [self::mutated(static function (Doc $c): void {
+            $c->append('bottomTerminalRow', B::block(50, 0, 0, 2));
+        }), 'content.bottomTerminalRow[0].widthModules', B::uuid(50)];
         yield 'row blocks overlap' => [self::mutated(static function (Doc $c): void {
             $c->append('terminalRow', B::rowBlock(50, 0, 4));
             $c->append('terminalRow', B::rowBlock(51, 1, 2));
@@ -670,33 +667,47 @@ final class PanelContentCases
             $c->set('rails.0.terminalBlocks.0.offsetModules', 2);
             $c->append('rails.0.elements', B::element(33, 3, 3, 1));
         });
-        yield 'terminal row of one-terminal blocks filling the capacity (60 - 3 = 57)' => self::mutatedCase(static function (Doc $c): void {
+        yield 'each terminal row of 60 one-terminal blocks' => self::mutatedCase(static function (Doc $c): void {
             $c->set('railWidthModules', 60);
-            $c->set('terminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 56)));
+            $c->set('terminalRow', array_map(static fn(int $i): array => B::rowBlock(5000 + $i, $i, 1), range(0, 59)));
+            $c->set('bottomTerminalRow', array_map(static fn(int $i): array => B::rowBlock(6000 + $i, $i, 1), range(0, 59)));
         });
         yield 'row block of 60 terminals filling the row' => self::mutatedCase(static function (Doc $c): void {
-            // capacity 33 - 3 = 30 modules = 60 terminals
-            $c->set('railWidthModules', 33);
+            // capacity = rail width = 30 modules = 60 terminals
+            $c->set('railWidthModules', 30);
             $c->set('terminalRow', [B::rowBlock(50, 0, 60, 'red', 'Bus')]);
         });
-        yield 'row block ending exactly at the capacity' => self::mutatedCase(static function (Doc $c): void {
-            $c->append('terminalRow', B::rowBlock(50, 19, 4));
+        yield 'row block ending exactly at the rail width' => self::mutatedCase(static function (Doc $c): void {
+            $c->append('terminalRow', B::rowBlock(50, 22, 4));
         });
-        yield 'row block in a minimal input row (1 wire: start module 2)' => self::mutatedCase(static function (Doc $c): void {
-            $c->set('inputCables.0.wires', [['id' => B::uuid(11), 'colour' => 'brown']]);
+        yield 'row block starting at module 0 with many input-cable wires' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('inputCables.0.wires', array_map(static fn(int $i): array => ['id' => B::uuid($i), 'colour' => 'brown'], [11, 12, 13, 14]));
             $c->set('wires', []);
             $c->set('railWidthModules', 12);
             $c->set('rails.0.terminalBlocks.0.offsetModules', 4);
-            $c->set('terminalRow', [B::rowBlock(50, 0, 20)]);
+            $c->set('terminalRow', [B::rowBlock(50, 0, 24)]);
         });
         yield 'row capacity of exactly one module' => self::mutatedCase(static function (Doc $c): void {
-            $c->set('railWidthModules', 4);
+            $c->set('railWidthModules', 1);
+            $c->set('rails.0.elements', []);
             $c->set('rails.0.terminalBlocks', []);
             $c->set('wires', []);
             $c->set('terminalRow', [B::rowBlock(50, 0, 1)]);
+            $c->set('bottomTerminalRow', [B::rowBlock(51, 0, 2)]);
         });
         yield 'row blocks touching' => self::mutatedCase(static function (Doc $c): void {
             $c->set('terminalRow', [B::rowBlock(50, 0, 4), B::rowBlock(51, 2, 3)]);
+        });
+        yield 'bottom row blocks touching' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('bottomTerminalRow', [B::rowBlock(50, 0, 4), B::rowBlock(51, 2, 3)]);
+        });
+        yield 'blocks at the same offset in both rows' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('terminalRow', [B::rowBlock(50, 0, 4)]);
+            $c->set('bottomTerminalRow', [B::rowBlock(51, 0, 4)]);
+        });
+        yield 'every side combination: both kinds left' => self::mutatedCase(static function (Doc $c): void {
+            $c->set('inputCableSide', 'left');
+            $c->set('outputCableSide', 'left');
         });
         yield 'rail block of 12 terminals' => self::mutatedCase(static function (Doc $c): void {
             $c->set('rails.0.terminalBlocks.0.terminalCount', 12);
